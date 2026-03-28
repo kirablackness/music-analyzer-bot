@@ -33,21 +33,34 @@ def analyze_track(file_path):
     try:
         logger.info(f"Starting analysis of {file_path}")
         
-        logger.info("Loading audio...")
-        try:
-            import soundfile as sf
-            y, sr = sf.read(file_path)
-            if len(y.shape) > 1:
-                y = y.mean(axis=1)
-            logger.info(f"Loaded via soundfile: {len(y)} samples at {sr}Hz")
-        except Exception as e1:
-            logger.info(f"Soundfile failed: {e1}, trying librosa...")
+        if not file_path.endswith('.wav'):
+            logger.info("Converting to WAV with ffmpeg...")
             try:
-                y, sr = librosa.load(file_path, sr=None, mono=True)
-                logger.info(f"Loaded via librosa: {len(y)} samples at {sr}Hz")
-            except Exception as e2:
-                logger.error(f"Both loaders failed: {e2}")
+                wav_path = file_path.rsplit('.', 1)[0] + '.wav'
+                result = subprocess.run([
+                    'ffmpeg', '-i', file_path, 
+                    '-ar', '22050',
+                    '-ac', '1',
+                    '-y',
+                    wav_path
+                ], capture_output=True, text=True, timeout=60)
+                
+                if result.returncode != 0:
+                    logger.error(f"FFmpeg error: {result.stderr}")
+                    return None
+                
+                file_path = wav_path
+                logger.info(f"Converted to: {file_path}")
+            except FileNotFoundError:
+                logger.error("ffmpeg not found. Please install ffmpeg.")
                 return None
+            except Exception as e:
+                logger.error(f"Conversion error: {e}")
+                return None
+        
+        logger.info("Loading audio...")
+        y, sr = librosa.load(file_path, sr=None, mono=True)
+        logger.info(f"Loaded: {len(y)} samples at {sr}Hz")
         
         logger.info("Analyzing BPM...")
         tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
