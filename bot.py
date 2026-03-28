@@ -33,14 +33,21 @@ def analyze_track(file_path):
     try:
         logger.info(f"Starting analysis of {file_path}")
         
-        logger.info("Loading with librosa...")
+        logger.info("Loading audio...")
         try:
-            y, sr = librosa.load(file_path, sr=None)
-        except Exception as e:
-            logger.error(f"Librosa load error: {e}")
-            return None
-        
-        logger.info(f"Loaded: {len(y)} samples at {sr}Hz")
+            import soundfile as sf
+            y, sr = sf.read(file_path)
+            if len(y.shape) > 1:
+                y = y.mean(axis=1)
+            logger.info(f"Loaded via soundfile: {len(y)} samples at {sr}Hz")
+        except Exception as e1:
+            logger.info(f"Soundfile failed: {e1}, trying librosa...")
+            try:
+                y, sr = librosa.load(file_path, sr=None, mono=True)
+                logger.info(f"Loaded via librosa: {len(y)} samples at {sr}Hz")
+            except Exception as e2:
+                logger.error(f"Both loaders failed: {e2}")
+                return None
         
         logger.info("Analyzing BPM...")
         tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
