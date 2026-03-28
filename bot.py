@@ -29,11 +29,14 @@ def convert_to_wav(input_path):
         logger.error(f"Conversion error: {e}")
         return input_path
 
-def analyze_track(file_path):
+def analyze_track(file_path, status_msg=None, context=None):
     try:
         logger.info(f"Starting analysis of {file_path}")
         
         if not file_path.endswith('.wav'):
+            if status_msg:
+                import asyncio
+                asyncio.create_task(status_msg.edit_text("🔄 Конвертирую в WAV..."))
             logger.info("Converting to WAV with ffmpeg...")
             try:
                 wav_path = file_path.rsplit('.', 1)[0] + '.wav'
@@ -58,6 +61,9 @@ def analyze_track(file_path):
                 logger.error(f"Conversion error: {e}")
                 return None
         
+        if status_msg:
+            import asyncio
+            asyncio.create_task(status_msg.edit_text("🔊 Анализирую BPM..."))
         logger.info("Analyzing BPM with aubio...")
         
         # Create aubio source
@@ -89,13 +95,10 @@ def analyze_track(file_path):
         
         logger.info(f"BPM: {bpm}")
         
-        # Calculate duration
-        duration_sec = int(total_frames / samplerate)
-        minutes = duration_sec // 60
-        seconds = duration_sec % 60
-        duration = f"{minutes}:{seconds:02d}"
-        
         # Simple key detection using aubio
+        if status_msg:
+            import asyncio
+            asyncio.create_task(status_msg.edit_text("🎹 Определяю тональность..."))
         logger.info("Analyzing key...")
         s = aubio.source(file_path, samplerate, 512)
         pitches = []
@@ -119,6 +122,9 @@ def analyze_track(file_path):
         logger.info(f"Key: {key}")
         
         # LUFS calculation - simplified
+        if status_msg:
+            import asyncio
+            asyncio.create_task(status_msg.edit_text("📢 Анализирую громкость..."))
         logger.info("Analyzing LUFS...")
         try:
             s = aubio.source(file_path, samplerate, 512)
@@ -309,12 +315,12 @@ async def download_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Произошла ошибка при скачивании")
 
 async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Анализирую...")
+    status_msg = await update.message.reply_text("⏳ Скачиваю файл...")
     
     try:
         audio = update.message.audio or update.message.document
         if not audio:
-            await update.message.reply_text("Не могу найти аудиофайл")
+            await status_msg.edit_text("❌ Не могу найти аудиофайл")
             return
         
         logger.info(f"Received audio file: {audio.file_id}")
@@ -327,7 +333,9 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.info(f"File downloaded to: {tmp_path}")
         logger.info(f"File size: {os.path.getsize(tmp_path)} bytes")
         
-        result = analyze_track(tmp_path)
+        await status_msg.edit_text("🔄 Конвертирую формат...")
+        
+        result = analyze_track(tmp_path, status_msg, context)
         
         os.unlink(tmp_path)
         
@@ -335,21 +343,22 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
             keyboard = [[InlineKeyboardButton("🏠 Меню", callback_data="menu")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             response = (
+                f"✅ Анализ завершён!\n\n"
                 f"🎵 Результат:\n\n"
-                f"BPM: {result['bpm']}\n"
-                f"Key: {result['key']}\n"
-                f"LUFS: {result['lufs']}\n"
-                f"Duration: {result['duration']}"
+                f"🔊 BPM: {result['bpm']}\n"
+                f"🎹 Key: {result['key']}\n"
+                f"📢 LUFS: {result['lufs']}\n"
+                f"⏱ Duration: {result['duration']}"
             )
         else:
-            response = "Ошибка анализа. Попробуйте WAV-файл или короткий трек."
+            response = "❌ Ошибка анализа. Попробуйте WAV-файл или короткий трек."
             reply_markup = None
         
-        await update.message.reply_text(response, reply_markup=reply_markup)
+        await status_msg.edit_text(response, reply_markup=reply_markup)
         
     except Exception as e:
         logger.error(f"Handle audio error: {e}")
-        await update.message.reply_text("Произошла ошибка")
+        await status_msg.edit_text("❌ Произошла ошибка")
 
 async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text
