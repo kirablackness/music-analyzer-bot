@@ -33,13 +33,13 @@ def analyze_track(file_path):
     try:
         logger.info(f"Starting analysis of {file_path}")
         
-        if not file_path.endswith('.wav'):
-            logger.info("Converting to WAV...")
-            file_path = convert_to_wav(file_path)
-            logger.info(f"Converted to: {file_path}")
-        
         logger.info("Loading with librosa...")
-        y, sr = librosa.load(file_path, sr=None)
+        try:
+            y, sr = librosa.load(file_path, sr=None)
+        except Exception as e:
+            logger.error(f"Librosa load error: {e}")
+            return None
+        
         logger.info(f"Loaded: {len(y)} samples at {sr}Hz")
         
         logger.info("Analyzing BPM...")
