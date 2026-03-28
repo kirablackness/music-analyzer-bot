@@ -31,14 +31,22 @@ def convert_to_wav(input_path):
 
 def analyze_track(file_path):
     try:
+        logger.info(f"Starting analysis of {file_path}")
+        
         if not file_path.endswith('.wav'):
+            logger.info("Converting to WAV...")
             file_path = convert_to_wav(file_path)
+            logger.info(f"Converted to: {file_path}")
         
+        logger.info("Loading with librosa...")
         y, sr = librosa.load(file_path, sr=None)
+        logger.info(f"Loaded: {len(y)} samples at {sr}Hz")
         
+        logger.info("Analyzing BPM...")
         tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
         bpm = int(tempo) if np.isscalar(tempo) else int(tempo[0])
         
+        logger.info("Analyzing key...")
         chroma = librosa.feature.chroma_stft(y=y, sr=sr)
         key_idx = np.argmax(np.mean(chroma, axis=1))
         keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
@@ -48,15 +56,18 @@ def analyze_track(file_path):
         major_minor = np.sum(chroma) > np.sum(minor_chroma) * 0.5
         mode = "Major" if major_minor else "Minor"
         
+        logger.info("Analyzing LUFS...")
         meter = pyln.Meter(sr)
         loudness = meter.integrated_loudness(y)
         lufs = round(loudness, 1) if loudness > -70 else "Too quiet"
         
+        logger.info("Calculating duration...")
         duration_sec = int(len(y) / sr)
         minutes = duration_sec // 60
         seconds = duration_sec % 60
         duration = f"{minutes}:{seconds:02d}"
         
+        logger.info("Analysis complete!")
         return {
             'bpm': bpm,
             'key': f"{key} {mode}",
