@@ -4,7 +4,7 @@ import logging
 import subprocess
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
-import librosa
+import aubio
 import numpy as np
 import pyloudnorm as pyln
 import yt_dlp
@@ -58,58 +58,94 @@ def analyze_track(file_path):
                 logger.error(f"Conversion error: {e}")
                 return None
         
-        logger.info("Loading audio...")
-        y, sr = librosa.load(file_path, sr=None, mono=True)
+        logger.info("Analyzing BPM with aubio...")
         
-        # Analyze only first 30 seconds to save memory
-        max_samples = int(30 * sr)
-        if len(y) > max_samples:
-            logger.info(f"Truncating to 30 seconds for memory efficiency")
-            y = y[:max_samples]
+        # Create aubio source
+        s = aubio.source(file_path, 0, 512)
+        samplerate = s.samplerate
         
-        logger.info(f"Loaded: {len(y)} samples at {sr}Hz")
+        # Create tempo detection
+        o = aubio.tempo("default", 512, 256, samplerate)
         
-        logger.info("Analyzing BPM...")
-        bpm = "N/A"
-        try:
-            onset_env = librosa.onset.onset_strength(y=y, sr=sr)
-            tempo = librosa.feature.tempo(onset_envelope=onset_env, sr=sr)
-            bpm = int(tempo[0]) if len(tempo) > 0 else "N/A"
-            logger.info(f"BPM: {bpm}")
-        except Exception as e:
-            logger.error(f"BPM analysis failed: {e}")
+        # Track beats
+        beats = []
+        total_frames = 0
+        while True:
+            samples, read = s()
+            is_beat = o(samples)
+            if is_beat:
+                beats.append(o.get_last_s())
+            total_frames += read
+            if read < 512:
+                break
+        
+        # Calculate BPM
+        if len(beats) > 1:
+            intervals = np.diff(beats)
+            avg_interval = np.mean(intervals)
+            bpm = round(60.0 / avg_interval)
+        else:
             bpm = "N/A"
         
-        logger.info("Analyzing key...")
-        chroma = librosa.feature.chroma_stft(y=y, sr=sr)
-        key_idx = np.argmax(np.mean(chroma, axis=1))
-        keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-        key = keys[key_idx]
+        logger.info(f"BPM: {bpm}")
         
-        minor_chroma = librosa.feature.chroma_stft(y=librosa.effects.harmonic(y), sr=sr)
-        major_minor = np.sum(chroma) > np.sum(minor_chroma) * 0.5
-        mode = "Major" if major_minor else "Minor"
-        
-        logger.info("Analyzing LUFS...")
-        meter = pyln.Meter(sr)
-        loudness = meter.integrated_loudness(y)
-        lufs = round(loudness, 1) if loudness > -70 else "Too quiet"
-        
-        logger.info("Calculating duration...")
-        duration_sec = int(len(y) / sr)
+        # Calculate duration
+        duration_sec = int(total_frames / samplerate)
         minutes = duration_sec // 60
         seconds = duration_sec % 60
         duration = f"{minutes}:{seconds:02d}"
         
+        # Simple key detection using aubio
+        logger.info("Analyzing key...")
+        s = aubio.source(file_path, samplerate, 512)
+        pitches = []
+        while True:
+            samples, read = s()
+            pitch_o = aubio.pitch("yin", 512, 256, samplerate)
+            pitch = pitch_o(samples)[0]
+            if pitch > 0:
+                pitches.append(pitch)
+            if read < 512:
+                break
+        
+        if pitches:
+            avg_pitch = np.mean(pitches)
+            keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+            key_idx = int((12 * np.log2(avg_pitch / 440.0) + 69) % 12)
+            key = keys[key_idx]
+        else:
+            key = "N/A"
+        
+        logger.info(f"Key: {key}")
+        
+        # LUFS calculation
+        logger.info("Analyzing LUFS...")
+        s = aubio.source(file_path, samplerate, 512)
+        all_samples = []
+        while True:
+            samples, read = s()
+            all_samples.extend(samples)
+            if read < 512:
+                break
+        
+        y = np.array(all_samples)
+        meter = pyln.Meter(samplerate)
+        loudness = meter.integrated_loudness(y)
+        lufs = round(loudness, 1) if loudness > -70 else "Too quiet"
+        
+        logger.info(f"LUFS: {lufs}")
         logger.info("Analysis complete!")
+        
         return {
             'bpm': bpm,
-            'key': f"{key} {mode}",
+            'key': key,
             'lufs': lufs,
             'duration': duration
         }
     except Exception as e:
         logger.error(f"Analysis error: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return None
 
 def download_from_url(url):
