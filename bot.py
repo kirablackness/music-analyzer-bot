@@ -1,155 +1,202 @@
 import os
+import gc
+import shutil
 import tempfile
 import logging
-import gc
+from typing import Optional
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
+
 import librosa
 import numpy as np
 import pyloudnorm as pyln
 import yt_dlp
 
+
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
+SAMPLE_RATE = 11025
+SAMPLE_DURATION = 15.0
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def analyze_track(file_path):
+
+KEYBOARDS = {
+    "main": [
+        [InlineKeyboardButton("🎵 Анализ трека", callback_data="analyze")],
+        [InlineKeyboardButton("📥 Скачать с YouTube/SoundCloud", callback_data="download")],
+        [InlineKeyboardButton("ℹ️ Помощь", callback_data="help")],
+    ],
+    "back": [[InlineKeyboardButton("◀️ Назад", callback_data="menu")]],
+    "menu": [[InlineKeyboardButton("🏠 Меню", callback_data="menu")]],
+}
+
+MESSAGES = {
+    "welcome": "🎵 *Music Analyzer Bot*\n\nВыбери действие:",
+    "analyze_help": (
+        "📤 *Отправь мне:*\n\n"
+        "• Аудиофайл (MP3, WAV, FLAC)\n"
+        "• Или ссылку на YouTube/SoundCloud\n\n"
+        "Я определю BPM, громкость и длительность."
+    ),
+    "download_help": "📥 *Отправь ссылку на YouTube или SoundCloud*\n\nЯ скачаю и отправлю файл.",
+    "help": (
+        "ℹ️ *Что я умею:*\n\n"
+        "• Определяю BPM\n"
+        "• Измеряю громкость (LUFS)\n"
+        "• Показываю длительность\n"
+        "• Скачиваю с YouTube/SoundCloud\n\n"
+        "Просто отправь файл или ссылку!"
+    ),
+}
+
+YDL_OPTS_ANALYZE = {
+    "format": "worstaudio/worst",
+    "quiet": True,
+    "no_warnings": True,
+    "nocheckcertificate": True,
+}
+
+YDL_OPTS_DOWNLOAD = {
+    "format": "bestaudio/best",
+    "quiet": True,
+    "no_warnings": True,
+    "nocheckcertificate": True,
+}
+
+ALLOWED_DOMAINS = ["youtube", "youtu.be", "soundcloud", "vimeo"]
+
+
+def analyze_track(file_path: str) -> Optional[dict]:
     try:
-        logger.info(f"Starting analysis of {file_path}")
+        logger.info(f"Analyzing: {file_path}")
         
-        y, sr = librosa.load(file_path, sr=11025, mono=True, duration=15.0)
+        y, sr = librosa.load(file_path, sr=SAMPLE_RATE, mono=True, duration=SAMPLE_DURATION)
         
-        logger.info("Analyzing BPM...")
         tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
         bpm = int(tempo) if np.isscalar(tempo) else int(tempo[0])
         
-        logger.info("Analyzing LUFS...")
         meter = pyln.Meter(sr)
         loudness = meter.integrated_loudness(y)
         lufs = round(loudness, 1) if loudness > -70 else "Too quiet"
         
         duration_sec = int(len(y) / sr)
-        minutes = duration_sec // 60
-        seconds = duration_sec % 60
-        duration = f"{minutes}:{seconds:02d} (15s sample)"
+        duration = f"{duration_sec // 60}:{duration_sec % 60:02d} (15s sample)"
         
         del y
         gc.collect()
         
-        logger.info(f"BPM: {bpm}, LUFS: {lufs}, Duration: {duration}")
-        
-        return {
-            'bpm': bpm,
-            'lufs': lufs,
-            'duration': duration
-        }
+        return {"bpm": bpm, "lufs": lufs, "duration": duration}
+    
     except Exception as e:
         logger.error(f"Analysis error: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
         return None
 
-def download_from_url(url):
+
+def download_audio(url: str, for_analysis: bool = True) -> tuple:
+    temp_dir = tempfile.mkdtemp()
+    opts = YDL_OPTS_ANALYZE if for_analysis else YDL_OPTS_DOWNLOAD.copy()
+    opts["outtmpl"] = os.path.join(temp_dir, "%(id)s.%(ext)s" if for_analysis else "%(title)s.%(ext)s")
+    
     try:
-        temp_dir = tempfile.mkdtemp()
-        ydl_opts = {
-            'format': 'worstaudio/worst',
-            'outtmpl': os.path.join(temp_dir, '%(id)s.%(ext)s'),
-            'quiet': True,
-            'no_warnings': True,
-            'nocheckcertificate': True,
-        }
-        
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=True)
-            title = info.get('title', 'Unknown')
+            title = info.get("title", "Unknown")
             filename = ydl.prepare_filename(info)
         
-        return filename, title
+        if not os.path.exists(filename):
+            files = os.listdir(temp_dir)
+            if files:
+                filename = os.path.join(temp_dir, files[0])
+        
+        return filename, title, temp_dir
+    
     except Exception as e:
         logger.error(f"Download error: {e}")
-        return None, None
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        return None, None, None
+
+
+def is_valid_url(url: str) -> bool:
+    return any(domain in url for domain in ALLOWED_DOMAINS)
+
+
+def cleanup_file(file_path: str, temp_dir: str = None):
+    if file_path and os.path.exists(file_path):
+        os.unlink(file_path)
+    if temp_dir and os.path.exists(temp_dir):
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [InlineKeyboardButton("🎵 Анализ трека", callback_data="analyze")],
-        [InlineKeyboardButton("📥 Скачать с YouTube/SoundCloud", callback_data="download")],
-        [InlineKeyboardButton("ℹ️ Помощь", callback_data="help")],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
     await update.message.reply_text(
-        "🎵 *Music Analyzer Bot*\n\n"
-        "Выбери действие:",
-        reply_markup=reply_markup,
-        parse_mode='Markdown'
+        MESSAGES["welcome"],
+        reply_markup=InlineKeyboardMarkup(KEYBOARDS["main"]),
+        parse_mode="Markdown"
     )
+
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
+    handlers = {
+        "analyze": lambda: _show_analyze_menu(query, context),
+        "download": lambda: _show_download_menu(query, context),
+        "help": lambda: _show_help_menu(query),
+        "menu": lambda: _show_main_menu(query, context),
+    }
+    
+    handler = handlers.get(query.data)
+    if handler:
+        try:
+            await handler()
+        except Exception as e:
+            logger.error(f"Callback error: {e}")
+
+
+async def _show_analyze_menu(query, context):
+    context.user_data["mode"] = "analyze"
+    await query.edit_message_text(
+        MESSAGES["analyze_help"],
+        reply_markup=InlineKeyboardMarkup(KEYBOARDS["back"]),
+        parse_mode="Markdown"
+    )
+
+
+async def _show_download_menu(query, context):
+    context.user_data["mode"] = "download"
+    await query.edit_message_text(
+        MESSAGES["download_help"],
+        reply_markup=InlineKeyboardMarkup(KEYBOARDS["back"]),
+        parse_mode="Markdown"
+    )
+
+
+async def _show_help_menu(query):
+    await query.edit_message_text(
+        MESSAGES["help"],
+        reply_markup=InlineKeyboardMarkup(KEYBOARDS["back"]),
+        parse_mode="Markdown"
+    )
+
+
+async def _show_main_menu(query, context):
+    context.user_data["mode"] = None
     try:
-        if query.data == "analyze":
-            context.user_data['mode'] = 'analyze'
-            keyboard = [[InlineKeyboardButton("◀️ Назад", callback_data="menu")]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.edit_message_text(
-                "📤 *Отправь мне:*\n\n"
-                "• Аудиофайл (MP3, WAV, FLAC)\n"
-                "• Или ссылку на YouTube/SoundCloud\n\n"
-                "Я определю BPM, тональность, громкость и длительность.",
-                reply_markup=reply_markup,
-                parse_mode='Markdown'
-            )
-        elif query.data == "download":
-            context.user_data['mode'] = 'download'
-            keyboard = [[InlineKeyboardButton("◀️ Назад", callback_data="menu")]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.edit_message_text(
-                "📥 *Отправь ссылку на YouTube или SoundCloud*\n\n"
-                "Я скачаю и отправлю файл.",
-                reply_markup=reply_markup,
-                parse_mode='Markdown'
-            )
-        elif query.data == "help":
-            keyboard = [[InlineKeyboardButton("◀️ Назад", callback_data="menu")]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.edit_message_text(
-                "ℹ️ *Что я умею:*\n\n"
-                "• Определяю BPM\n"
-                "• Измеряю громкость (LUFS)\n"
-                "• Показываю длительность\n"
-                "• Скачиваю с YouTube/SoundCloud\n\n"
-                "Просто отправь файл или ссылку!",
-                reply_markup=reply_markup,
-                parse_mode='Markdown'
-            )
-        elif query.data == "menu":
-            context.user_data['mode'] = None
-            keyboard = [
-                [InlineKeyboardButton("🎵 Анализ трека", callback_data="analyze")],
-                [InlineKeyboardButton("📥 Скачать с YouTube/SoundCloud", callback_data="download")],
-                [InlineKeyboardButton("ℹ️ Помощь", callback_data="help")],
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            try:
-                await query.edit_message_text(
-                    "🎵 *Music Analyzer Bot*\n\n"
-                    "Выбери действие:",
-                    reply_markup=reply_markup,
-                    parse_mode='Markdown'
-                )
-            except:
-                await query.message.reply_text(
-                    "🎵 *Music Analyzer Bot*\n\n"
-                    "Выбери действие:",
-                    reply_markup=reply_markup,
-                    parse_mode='Markdown'
-                )
-    except Exception as e:
-        logger.error(f"Button callback error: {e}")
+        await query.edit_message_text(
+            MESSAGES["welcome"],
+            reply_markup=InlineKeyboardMarkup(KEYBOARDS["main"]),
+            parse_mode="Markdown"
+        )
+    except:
+        await query.message.reply_text(
+            MESSAGES["welcome"],
+            reply_markup=InlineKeyboardMarkup(KEYBOARDS["main"]),
+            parse_mode="Markdown"
+        )
+
 
 async def download_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
@@ -157,191 +204,123 @@ async def download_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     url = context.args[0]
-    
-    if not any(x in url for x in ['youtube', 'youtu.be', 'soundcloud', 'vimeo']):
+    if not is_valid_url(url):
         await update.message.reply_text("Поддерживаются только YouTube, SoundCloud, Vimeo")
         return
     
     await update.message.reply_text("Скачиваю...")
     
-    try:
-        temp_dir = tempfile.mkdtemp()
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'outtmpl': os.path.join(temp_dir, '%(title)s.%(ext)s'),
-            'quiet': True,
-            'no_warnings': True,
-            'nocheckcertificate': True,
-        }
+    filename, title, temp_dir = download_audio(url, for_analysis=False)
+    
+    if filename and os.path.exists(filename):
+        await update.message.reply_text(f"Отправляю: {title}")
         
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            title = info.get('title', 'Unknown')
-            filename = ydl.prepare_filename(info)
+        with open(filename, "rb") as f:
+            await update.message.reply_document(
+                document=f,
+                filename=f"{title}.mp3",
+                caption=f"🎵 {title}"
+            )
         
-        if not os.path.exists(filename):
-            files = os.listdir(temp_dir)
-            if files:
-                filename = os.path.join(temp_dir, files[0])
-        
-        final_filename = f"{title}.mp3"
-        if os.path.exists(filename):
-            await update.message.reply_text(f"Отправляю: {title}")
-            
-            with open(filename, 'rb') as audio_file:
-                await update.message.reply_document(
-                    document=audio_file,
-                    filename=final_filename,
-                    caption=f"🎵 {title}"
-                )
-            
-            import shutil
-            shutil.rmtree(temp_dir, ignore_errors=True)
-        else:
-            await update.message.reply_text("Не удалось скачать файл")
-            
-    except Exception as e:
-        logger.error(f"Download error: {e}")
-        await update.message.reply_text("Произошла ошибка при скачивании")
+        await update.message.reply_text(
+            "Готово!",
+            reply_markup=InlineKeyboardMarkup(KEYBOARDS["menu"])
+        )
+    else:
+        await update.message.reply_text("Не удалось скачать файл")
+    
+    cleanup_file(filename, temp_dir)
+
 
 async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status_msg = await update.message.reply_text("⏳ Анализирую...")
     
-    try:
-        audio = update.message.audio or update.message.document
-        if not audio:
-            await status_msg.edit_text("❌ Не могу найти аудиофайл")
-            return
-        
-        logger.info(f"Received audio file: {audio.file_id}")
+    audio = update.message.audio or update.message.document
+    if not audio:
+        await status_msg.edit_text("❌ Не могу найти аудиофайл")
+        return
+    
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
         file = await context.bot.get_file(audio.file_id)
-        
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
-            await file.download_to_drive(tmp.name)
-            tmp_path = tmp.name
-        
-        logger.info(f"File downloaded to: {tmp_path}")
-        
-        result = analyze_track(tmp_path)
-        
-        os.unlink(tmp_path)
-        
-        if result:
-            keyboard = [[InlineKeyboardButton("🏠 Меню", callback_data="menu")]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            response = (
-                f"✅ Результат:\n\n"
-                f"🔊 BPM: {result['bpm']}\n"
-                f"📢 LUFS: {result['lufs']}\n"
-                f"⏱ Duration: {result['duration']}"
-            )
-        else:
-            response = "❌ Ошибка анализа"
-            reply_markup = None
-        
-        await status_msg.edit_text(response, reply_markup=reply_markup)
-        
-    except Exception as e:
-        logger.error(f"Handle audio error: {e}")
-        await status_msg.edit_text("❌ Произошла ошибка")
+        await file.download_to_drive(tmp.name)
+        tmp_path = tmp.name
+    
+    result = analyze_track(tmp_path)
+    cleanup_file(tmp_path)
+    
+    if result:
+        await status_msg.edit_text(
+            f"✅ Результат:\n\n"
+            f"🔊 BPM: {result['bpm']}\n"
+            f"📢 LUFS: {result['lufs']}\n"
+            f"⏱ Duration: {result['duration']}",
+            reply_markup=InlineKeyboardMarkup(KEYBOARDS["menu"])
+        )
+    else:
+        await status_msg.edit_text("❌ Ошибка анализа")
+
 
 async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text
-    
-    if not any(x in url for x in ['youtube', 'youtu.be', 'soundcloud', 'vimeo']):
+    if not is_valid_url(url):
         return
     
-    mode = context.user_data.get('mode', 'analyze')
+    mode = context.user_data.get("mode", "analyze")
     
-    if mode == 'download':
-        await handle_download(update, context, url)
+    if mode == "download":
+        await _handle_download_url(update, url)
     else:
-        await handle_analyze_url(update, context, url)
+        await _handle_analyze_url(update, url)
 
-async def handle_analyze_url(update: Update, context: ContextTypes.DEFAULT_TYPE, url: str):
+
+async def _handle_analyze_url(update: Update, url: str):
     await update.message.reply_text("Скачиваю и анализирую...")
     
-    try:
-        file_path, title = download_from_url(url)
-        
-        if not file_path:
-            await update.message.reply_text("Не удалось скачать")
-            return
-        
-        result = analyze_track(file_path)
-        
-        if os.path.exists(file_path):
-            os.unlink(file_path)
-            parent_dir = os.path.dirname(file_path)
-            if os.path.exists(parent_dir):
-                import shutil
-                shutil.rmtree(parent_dir, ignore_errors=True)
-        
-        if result:
-            keyboard = [[InlineKeyboardButton("🏠 Меню", callback_data="menu")]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            response = (
-                f"🎵 {title}\n\n"
-                f"BPM: {result['bpm']}\n"
-                f"LUFS: {result['lufs']}\n"
-                f"Duration: {result['duration']}"
-            )
-        else:
-            response = "Ошибка анализа"
-            reply_markup = None
-        
-        await update.message.reply_text(response, reply_markup=reply_markup)
-        
-    except Exception as e:
-        logger.error(f"Error: {e}")
-        await update.message.reply_text("Произошла ошибка")
+    filename, title, temp_dir = download_audio(url)
+    
+    if not filename:
+        await update.message.reply_text("Не удалось скачать")
+        return
+    
+    result = analyze_track(filename)
+    cleanup_file(filename, temp_dir)
+    
+    if result:
+        await update.message.reply_text(
+            f"🎵 {title}\n\n"
+            f"BPM: {result['bpm']}\n"
+            f"LUFS: {result['lufs']}\n"
+            f"Duration: {result['duration']}",
+            reply_markup=InlineKeyboardMarkup(KEYBOARDS["menu"])
+        )
+    else:
+        await update.message.reply_text("Ошибка анализа")
 
-async def handle_download(update: Update, context: ContextTypes.DEFAULT_TYPE, url: str):
+
+async def _handle_download_url(update: Update, url: str):
     await update.message.reply_text("Скачиваю...")
     
-    try:
-        temp_dir = tempfile.mkdtemp()
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'outtmpl': os.path.join(temp_dir, '%(title)s.%(ext)s'),
-            'quiet': True,
-            'no_warnings': True,
-            'nocheckcertificate': True,
-        }
+    filename, title, temp_dir = download_audio(url, for_analysis=False)
+    
+    if filename and os.path.exists(filename):
+        await update.message.reply_text(f"Отправляю: {title}")
         
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            title = info.get('title', 'Unknown')
-            filename = ydl.prepare_filename(info)
+        with open(filename, "rb") as f:
+            await update.message.reply_document(
+                document=f,
+                filename=f"{title}.mp3",
+                caption=f"🎵 {title}"
+            )
         
-        if not os.path.exists(filename):
-            files = os.listdir(temp_dir)
-            if files:
-                filename = os.path.join(temp_dir, files[0])
-        
-        final_filename = f"{title}.mp3"
-        if os.path.exists(filename):
-            await update.message.reply_text(f"Отправляю: {title}")
-            
-            with open(filename, 'rb') as audio_file:
-                await update.message.reply_document(
-                    document=audio_file,
-                    filename=final_filename,
-                    caption=f"🎵 {title}"
-                )
-            
-            keyboard = [[InlineKeyboardButton("🏠 Меню", callback_data="menu")]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text("Готово!", reply_markup=reply_markup)
-            
-            import shutil
-            shutil.rmtree(temp_dir, ignore_errors=True)
-        else:
-            await update.message.reply_text("Не удалось скачать файл")
-            
-    except Exception as e:
-        logger.error(f"Download error: {e}")
-        await update.message.reply_text("Произошла ошибка при скачивании")
+        await update.message.reply_text(
+            "Готово!",
+            reply_markup=InlineKeyboardMarkup(KEYBOARDS["menu"])
+        )
+    else:
+        await update.message.reply_text("Не удалось скачать файл")
+    
+    cleanup_file(filename, temp_dir)
+
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
@@ -354,6 +333,7 @@ def main():
     
     logger.info("Bot started")
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()
