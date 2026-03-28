@@ -60,6 +60,13 @@ def analyze_track(file_path):
         
         logger.info("Loading audio...")
         y, sr = librosa.load(file_path, sr=None, mono=True)
+        
+        # Analyze only first 30 seconds to save memory
+        max_samples = int(30 * sr)
+        if len(y) > max_samples:
+            logger.info(f"Truncating to 30 seconds for memory efficiency")
+            y = y[:max_samples]
+        
         logger.info(f"Loaded: {len(y)} samples at {sr}Hz")
         
         logger.info("Analyzing BPM...")
