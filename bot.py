@@ -1,6 +1,7 @@
 import os
 import tempfile
 import logging
+import subprocess
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 import librosa
@@ -13,8 +14,26 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+def convert_to_wav(input_path):
+    try:
+        output_path = input_path.rsplit('.', 1)[0] + '.wav'
+        subprocess.run([
+            'ffmpeg', '-i', input_path, 
+            '-ar', '22050',
+            '-ac', '1',
+            '-y',
+            output_path
+        ], capture_output=True, check=True)
+        return output_path
+    except Exception as e:
+        logger.error(f"Conversion error: {e}")
+        return input_path
+
 def analyze_track(file_path):
     try:
+        if not file_path.endswith('.wav'):
+            file_path = convert_to_wav(file_path)
+        
         y, sr = librosa.load(file_path, sr=None)
         
         tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
