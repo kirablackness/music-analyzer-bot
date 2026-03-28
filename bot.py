@@ -2,7 +2,6 @@ import os
 import tempfile
 import logging
 import subprocess
-import sys
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 import librosa
@@ -15,46 +14,16 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def get_ffmpeg_path():
-    try:
-        # First ensure pkg_resources is available
-        import pkg_resources
-    except ImportError:
-        try:
-            subprocess.run([sys.executable, '-m', 'pip', 'install', 'setuptools'], capture_output=True, check=True)
-            import pkg_resources
-        except:
-            pass
-    
-    try:
-        import imageio_ffmpeg
-        path = imageio_ffmpeg.get_ffmpeg_exe()
-        print(f"[FFMPEG] Found at: {path}")
-        return path
-    except Exception as e:
-        print(f"[FFMPEG] Error: {e}")
-        return 'ffmpeg'
-
-FFMPEG_PATH = get_ffmpeg_path()
-print(f"[FFMPEG] Using path: {FFMPEG_PATH}")
-
 def convert_to_wav(input_path):
     try:
-        logger.info(f"Converting {input_path} to WAV...")
         output_path = input_path.rsplit('.', 1)[0] + '.wav'
-        result = subprocess.run([
-            FFMPEG_PATH, '-i', input_path, 
+        subprocess.run([
+            'ffmpeg', '-i', input_path, 
             '-ar', '22050',
             '-ac', '1',
             '-y',
             output_path
-        ], capture_output=True, text=True)
-        
-        if result.returncode != 0:
-            logger.error(f"FFmpeg error: {result.stderr}")
-            return input_path
-        
-        logger.info(f"Converted to {output_path}")
+        ], capture_output=True, check=True)
         return output_path
     except Exception as e:
         logger.error(f"Conversion error: {e}")
