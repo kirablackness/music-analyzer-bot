@@ -124,12 +124,19 @@ def analyze_track(file_path):
                     break
             
             y = np.array(all_samples)
+            
+            duration_sec = int(len(y) / samplerate)
+            minutes = duration_sec // 60
+            seconds = duration_sec % 60
+            duration = f"{minutes}:{seconds:02d}"
+            
             meter = pyln.Meter(samplerate)
             loudness = meter.integrated_loudness(y)
             lufs = round(loudness, 1) if loudness > -70 else "Too quiet"
         except Exception as e:
             logger.error(f"LUFS error: {e}")
             lufs = "N/A"
+            duration = "N/A"
         
         logger.info(f"LUFS: {lufs}")
         logger.info("Analysis complete!")
