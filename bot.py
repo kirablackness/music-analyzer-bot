@@ -29,14 +29,11 @@ def convert_to_wav(input_path):
         logger.error(f"Conversion error: {e}")
         return input_path
 
-def analyze_track(file_path, status_msg=None, context=None):
+def analyze_track(file_path):
     try:
         logger.info(f"Starting analysis of {file_path}")
         
         if not file_path.endswith('.wav'):
-            if status_msg:
-                import asyncio
-                asyncio.create_task(status_msg.edit_text("🔄 Конвертирую в WAV..."))
             logger.info("Converting to WAV with ffmpeg...")
             try:
                 wav_path = file_path.rsplit('.', 1)[0] + '.wav'
@@ -61,9 +58,6 @@ def analyze_track(file_path, status_msg=None, context=None):
                 logger.error(f"Conversion error: {e}")
                 return None
         
-        if status_msg:
-            import asyncio
-            asyncio.create_task(status_msg.edit_text("🔊 Анализирую BPM..."))
         logger.info("Analyzing BPM with aubio...")
         
         # Create aubio source
@@ -96,9 +90,6 @@ def analyze_track(file_path, status_msg=None, context=None):
         logger.info(f"BPM: {bpm}")
         
         # Simple key detection using aubio
-        if status_msg:
-            import asyncio
-            asyncio.create_task(status_msg.edit_text("🎹 Определяю тональность..."))
         logger.info("Analyzing key...")
         s = aubio.source(file_path, samplerate, 512)
         pitches = []
@@ -122,9 +113,6 @@ def analyze_track(file_path, status_msg=None, context=None):
         logger.info(f"Key: {key}")
         
         # LUFS calculation - simplified
-        if status_msg:
-            import asyncio
-            asyncio.create_task(status_msg.edit_text("📢 Анализирую громкость..."))
         logger.info("Analyzing LUFS...")
         try:
             s = aubio.source(file_path, samplerate, 512)
@@ -335,7 +323,7 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await status_msg.edit_text("🔄 Конвертирую формат...")
         
-        result = analyze_track(tmp_path, status_msg, context)
+        result = analyze_track(tmp_path)
         
         os.unlink(tmp_path)
         
