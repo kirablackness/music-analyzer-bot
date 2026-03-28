@@ -18,14 +18,32 @@ logger = logging.getLogger(__name__)
 def get_ffmpeg_path():
     try:
         import imageio_ffmpeg
-        return imageio_ffmpeg.get_ffmpeg_exe()
-    except ImportError:
+        path = imageio_ffmpeg.get_ffmpeg_exe()
+        logger.info(f"Found ffmpeg at: {path}")
+        return path
+    except ImportError as e:
+        logger.error(f"imageio-ffmpeg not found: {e}")
         try:
-            subprocess.run([sys.executable, '-m', 'pip', 'install', 'imageio-ffmpeg', '--quiet'], check=True)
-            import imageio_ffmpeg
-            return imageio_ffmpeg.get_ffmpeg_exe()
-        except:
+            logger.info("Installing imageio-ffmpeg...")
+            result = subprocess.run([sys.executable, '-m', 'pip', 'install', 'imageio-ffmpeg'], capture_output=True, text=True)
+            logger.info(f"Install stdout: {result.stdout}")
+            if result.returncode != 0:
+                logger.error(f"Install stderr: {result.stderr}")
+            # Try importing again
+            try:
+                import imageio_ffmpeg
+                path = imageio_ffmpeg.get_ffmpeg_exe()
+                logger.info(f"Found ffmpeg after install: {path}")
+                return path
+            except Exception as e2:
+                logger.error(f"Still cannot import after install: {e2}")
+                return 'ffmpeg'
+        except Exception as e:
+            logger.error(f"Failed to install imageio-ffmpeg: {e}")
             return 'ffmpeg'
+    except Exception as e:
+        logger.error(f"Error getting ffmpeg path: {e}")
+        return 'ffmpeg'
 
 FFMPEG_PATH = get_ffmpeg_path()
 
