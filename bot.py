@@ -1,10 +1,10 @@
 import os
 import tempfile
 import logging
-import subprocess
+import gc
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
-import aubio
+import librosa
 import numpy as np
 import pyloudnorm as pyln
 import yt_dlp
@@ -14,132 +14,36 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def convert_to_wav(input_path):
-    try:
-        output_path = input_path.rsplit('.', 1)[0] + '.wav'
-        subprocess.run([
-            'ffmpeg', '-i', input_path, 
-            '-ar', '22050',
-            '-ac', '1',
-            '-y',
-            output_path
-        ], capture_output=True, check=True)
-        return output_path
-    except Exception as e:
-        logger.error(f"Conversion error: {e}")
-        return input_path
-
 def analyze_track(file_path):
     try:
         logger.info(f"Starting analysis of {file_path}")
         
-        if not file_path.endswith('.wav'):
-            logger.info("Converting to WAV with ffmpeg...")
-            try:
-                wav_path = file_path.rsplit('.', 1)[0] + '.wav'
-                result = subprocess.run([
-                    'ffmpeg', '-i', file_path, 
-                    '-ar', '22050',
-                    '-ac', '1',
-                    '-y',
-                    wav_path
-                ], capture_output=True, text=True, timeout=60)
-                
-                if result.returncode != 0:
-                    logger.error(f"FFmpeg error: {result.stderr}")
-                    return None
-                
-                file_path = wav_path
-                logger.info(f"Converted to: {file_path}")
-            except FileNotFoundError:
-                logger.error("ffmpeg not found. Please install ffmpeg.")
-                return None
-            except Exception as e:
-                logger.error(f"Conversion error: {e}")
-                return None
+        y, sr = librosa.load(file_path, sr=22050, mono=True, duration=60.0)
         
-        logger.info("Analyzing BPM with aubio...")
+        logger.info("Analyzing BPM...")
+        tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
+        bpm = int(tempo) if np.isscalar(tempo) else int(tempo[0])
         
-        # Create aubio source
-        s = aubio.source(file_path, 0, 512)
-        samplerate = s.samplerate
-        
-        # Create tempo detection
-        o = aubio.tempo("default", 512, 256, samplerate)
-        
-        # Track beats
-        beats = []
-        total_frames = 0
-        while True:
-            samples, read = s()
-            is_beat = o(samples)
-            if is_beat:
-                beats.append(o.get_last_s())
-            total_frames += read
-            if read < 512:
-                break
-        
-        # Calculate BPM
-        if len(beats) > 1:
-            intervals = np.diff(beats)
-            avg_interval = np.mean(intervals)
-            bpm = round(60.0 / avg_interval)
-        else:
-            bpm = "N/A"
-        
-        logger.info(f"BPM: {bpm}")
-        
-        # Simple key detection using aubio
         logger.info("Analyzing key...")
-        s = aubio.source(file_path, samplerate, 512)
-        pitches = []
-        while True:
-            samples, read = s()
-            pitch_o = aubio.pitch("yin", 512, 256, samplerate)
-            pitch = pitch_o(samples)[0]
-            if pitch > 0:
-                pitches.append(pitch)
-            if read < 512:
-                break
+        chroma = librosa.feature.chroma_stft(y=y, sr=sr)
+        key_idx = np.argmax(np.mean(chroma, axis=1))
+        keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+        key = keys[key_idx]
         
-        if pitches:
-            avg_pitch = np.mean(pitches)
-            keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-            key_idx = int((12 * np.log2(avg_pitch / 440.0) + 69) % 12)
-            key = keys[key_idx]
-        else:
-            key = "N/A"
-        
-        logger.info(f"Key: {key}")
-        
-        # LUFS calculation - simplified
         logger.info("Analyzing LUFS...")
-        try:
-            s = aubio.source(file_path, samplerate, 512)
-            all_samples = []
-            while True:
-                samples, read = s()
-                all_samples.extend(samples)
-                if read < 512:
-                    break
-            
-            y = np.array(all_samples)
-            
-            duration_sec = int(len(y) / samplerate)
-            minutes = duration_sec // 60
-            seconds = duration_sec % 60
-            duration = f"{minutes}:{seconds:02d}"
-            
-            meter = pyln.Meter(samplerate)
-            loudness = meter.integrated_loudness(y)
-            lufs = round(loudness, 1) if loudness > -70 else "Too quiet"
-        except Exception as e:
-            logger.error(f"LUFS error: {e}")
-            lufs = "N/A"
-            duration = "N/A"
+        meter = pyln.Meter(sr)
+        loudness = meter.integrated_loudness(y)
+        lufs = round(loudness, 1) if loudness > -70 else "Too quiet"
         
-        logger.info(f"LUFS: {lufs}")
-        logger.info("Analysis complete!")
+        duration_sec = int(len(y) / sr)
+        minutes = duration_sec // 60
+        seconds = duration_sec % 60
+        duration = f"{minutes}:{seconds:02d}"
+        
+        del y
+        gc.collect()
+        
+        logger.info(f"BPM: {bpm}, Key: {key}, LUFS: {lufs}, Duration: {duration}")
         
         return {
             'bpm': bpm,
@@ -222,7 +126,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(
                 "ℹ️ *Что я умею:*\n\n"
                 "• Определяю BPM\n"
-                "• Определяю тональность (Major/Minor)\n"
+                "• Определяю тональность\n"
                 "• Измеряю громкость (LUFS)\n"
                 "• Показываю длительность\n"
                 "• Скачиваю с YouTube/SoundCloud\n\n"
@@ -282,7 +186,6 @@ async def download_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             info = ydl.extract_info(url, download=True)
             title = info.get('title', 'Unknown')
             filename = ydl.prepare_filename(info)
-            ext = info.get('ext', 'mp3')
         
         if not os.path.exists(filename):
             files = os.listdir(temp_dir)
@@ -310,7 +213,7 @@ async def download_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Произошла ошибка при скачивании")
 
 async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    status_msg = await update.message.reply_text("⏳ Скачиваю файл...")
+    status_msg = await update.message.reply_text("⏳ Анализирую...")
     
     try:
         audio = update.message.audio or update.message.document
@@ -326,9 +229,6 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
             tmp_path = tmp.name
         
         logger.info(f"File downloaded to: {tmp_path}")
-        logger.info(f"File size: {os.path.getsize(tmp_path)} bytes")
-        
-        await status_msg.edit_text("🔄 Конвертирую формат...")
         
         result = analyze_track(tmp_path)
         
@@ -338,15 +238,14 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
             keyboard = [[InlineKeyboardButton("🏠 Меню", callback_data="menu")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             response = (
-                f"✅ Анализ завершён!\n\n"
-                f"🎵 Результат:\n\n"
+                f"✅ Результат:\n\n"
                 f"🔊 BPM: {result['bpm']}\n"
                 f"🎹 Key: {result['key']}\n"
                 f"📢 LUFS: {result['lufs']}\n"
                 f"⏱ Duration: {result['duration']}"
             )
         else:
-            response = "❌ Ошибка анализа. Попробуйте WAV-файл или короткий трек."
+            response = "❌ Ошибка анализа"
             reply_markup = None
         
         await status_msg.edit_text(response, reply_markup=reply_markup)
