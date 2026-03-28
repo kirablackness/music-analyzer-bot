@@ -70,9 +70,11 @@ def analyze_track(file_path):
         logger.info(f"Loaded: {len(y)} samples at {sr}Hz")
         
         logger.info("Analyzing BPM...")
+        bpm = "N/A"
         try:
-            tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
-            bpm = int(tempo) if np.isscalar(tempo) else int(tempo[0])
+            onset_env = librosa.onset.onset_strength(y=y, sr=sr)
+            tempo = librosa.feature.tempo(onset_envelope=onset_env, sr=sr)
+            bpm = int(tempo[0]) if len(tempo) > 0 else "N/A"
             logger.info(f"BPM: {bpm}")
         except Exception as e:
             logger.error(f"BPM analysis failed: {e}")
