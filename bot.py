@@ -18,7 +18,7 @@ def analyze_track(file_path):
     try:
         logger.info(f"Starting analysis of {file_path}")
         
-        y, sr = librosa.load(file_path, sr=22050, mono=True, duration=60.0)
+        y, sr = librosa.load(file_path, sr=11025, mono=True, duration=30.0)
         
         logger.info("Analyzing BPM...")
         tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
@@ -38,9 +38,9 @@ def analyze_track(file_path):
         duration_sec = int(len(y) / sr)
         minutes = duration_sec // 60
         seconds = duration_sec % 60
-        duration = f"{minutes}:{seconds:02d}"
+        duration = f"{minutes}:{seconds:02d} (30s sample)"
         
-        del y
+        del y, chroma
         gc.collect()
         
         logger.info(f"BPM: {bpm}, Key: {key}, LUFS: {lufs}, Duration: {duration}")
