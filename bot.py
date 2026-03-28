@@ -18,17 +18,11 @@ def analyze_track(file_path):
     try:
         logger.info(f"Starting analysis of {file_path}")
         
-        y, sr = librosa.load(file_path, sr=11025, mono=True, duration=30.0)
+        y, sr = librosa.load(file_path, sr=11025, mono=True, duration=15.0)
         
         logger.info("Analyzing BPM...")
         tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
         bpm = int(tempo) if np.isscalar(tempo) else int(tempo[0])
-        
-        logger.info("Analyzing key...")
-        chroma = librosa.feature.chroma_stft(y=y, sr=sr)
-        key_idx = np.argmax(np.mean(chroma, axis=1))
-        keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-        key = keys[key_idx]
         
         logger.info("Analyzing LUFS...")
         meter = pyln.Meter(sr)
@@ -38,16 +32,15 @@ def analyze_track(file_path):
         duration_sec = int(len(y) / sr)
         minutes = duration_sec // 60
         seconds = duration_sec % 60
-        duration = f"{minutes}:{seconds:02d} (30s sample)"
+        duration = f"{minutes}:{seconds:02d} (15s sample)"
         
-        del y, chroma
+        del y
         gc.collect()
         
-        logger.info(f"BPM: {bpm}, Key: {key}, LUFS: {lufs}, Duration: {duration}")
+        logger.info(f"BPM: {bpm}, LUFS: {lufs}, Duration: {duration}")
         
         return {
             'bpm': bpm,
-            'key': key,
             'lufs': lufs,
             'duration': duration
         }
@@ -126,7 +119,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(
                 "ℹ️ *Что я умею:*\n\n"
                 "• Определяю BPM\n"
-                "• Определяю тональность\n"
                 "• Измеряю громкость (LUFS)\n"
                 "• Показываю длительность\n"
                 "• Скачиваю с YouTube/SoundCloud\n\n"
@@ -240,7 +232,6 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
             response = (
                 f"✅ Результат:\n\n"
                 f"🔊 BPM: {result['bpm']}\n"
-                f"🎹 Key: {result['key']}\n"
                 f"📢 LUFS: {result['lufs']}\n"
                 f"⏱ Duration: {result['duration']}"
             )
@@ -292,7 +283,6 @@ async def handle_analyze_url(update: Update, context: ContextTypes.DEFAULT_TYPE,
             response = (
                 f"🎵 {title}\n\n"
                 f"BPM: {result['bpm']}\n"
-                f"Key: {result['key']}\n"
                 f"LUFS: {result['lufs']}\n"
                 f"Duration: {result['duration']}"
             )
