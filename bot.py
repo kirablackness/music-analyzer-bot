@@ -70,8 +70,13 @@ def analyze_track(file_path):
         logger.info(f"Loaded: {len(y)} samples at {sr}Hz")
         
         logger.info("Analyzing BPM...")
-        tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
-        bpm = int(tempo) if np.isscalar(tempo) else int(tempo[0])
+        try:
+            tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
+            bpm = int(tempo) if np.isscalar(tempo) else int(tempo[0])
+            logger.info(f"BPM: {bpm}")
+        except Exception as e:
+            logger.error(f"BPM analysis failed: {e}")
+            bpm = "N/A"
         
         logger.info("Analyzing key...")
         chroma = librosa.feature.chroma_stft(y=y, sr=sr)
