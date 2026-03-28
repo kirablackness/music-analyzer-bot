@@ -2,7 +2,7 @@ python-telegram-bot==21.0
 aubio==0.4.9
 pyloudnorm==0.1.1
 yt-dlp==2026.3.17
-numpy==2.4.3
+numpy==1.26.4
 soundfile==0.13.1
-scipy==1.17.1
+scipy==1.13.1
 setuptools==82.0.1

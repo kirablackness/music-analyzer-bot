@@ -18,7 +18,7 @@ RUN pip install --no-cache-dir numpy==2.4.3
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir numpy==2.4.3 && \
+RUN pip install --no-cache-dir numpy==1.26.4 && \
     pip install --no-cache-dir -r requirements.txt
 
 COPY bot.py .
