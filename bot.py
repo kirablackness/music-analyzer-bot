@@ -16,14 +16,21 @@ logger = logging.getLogger(__name__)
 
 def convert_to_wav(input_path):
     try:
+        logger.info(f"Converting {input_path} to WAV...")
         output_path = input_path.rsplit('.', 1)[0] + '.wav'
-        subprocess.run([
+        result = subprocess.run([
             'ffmpeg', '-i', input_path, 
             '-ar', '22050',
             '-ac', '1',
             '-y',
             output_path
-        ], capture_output=True, check=True)
+        ], capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            logger.error(f"FFmpeg error: {result.stderr}")
+            return input_path
+        
+        logger.info(f"Converted to {output_path}")
         return output_path
     except Exception as e:
         logger.error(f"Conversion error: {e}")
