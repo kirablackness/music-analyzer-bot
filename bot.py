@@ -2,6 +2,7 @@ import os
 import tempfile
 import logging
 import subprocess
+import sys
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 import librosa
@@ -9,16 +10,24 @@ import numpy as np
 import pyloudnorm as pyln
 import yt_dlp
 
-try:
-    import imageio_ffmpeg
-    FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
-except:
-    FFMPEG_PATH = 'ffmpeg'
-
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+def get_ffmpeg_path():
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except ImportError:
+        try:
+            subprocess.run([sys.executable, '-m', 'pip', 'install', 'imageio-ffmpeg', '--quiet'], check=True)
+            import imageio_ffmpeg
+            return imageio_ffmpeg.get_ffmpeg_exe()
+        except:
+            return 'ffmpeg'
+
+FFMPEG_PATH = get_ffmpeg_path()
 
 def convert_to_wav(input_path):
     try:
