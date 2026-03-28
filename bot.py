@@ -19,33 +19,33 @@ def get_ffmpeg_path():
     try:
         import imageio_ffmpeg
         path = imageio_ffmpeg.get_ffmpeg_exe()
-        logger.info(f"Found ffmpeg at: {path}")
+        print(f"[FFMPEG] Found at: {path}")
         return path
     except ImportError as e:
-        logger.error(f"imageio-ffmpeg not found: {e}")
+        print(f"[FFMPEG] imageio-ffmpeg not found: {e}")
         try:
-            logger.info("Installing imageio-ffmpeg...")
+            print("[FFMPEG] Installing imageio-ffmpeg...")
             result = subprocess.run([sys.executable, '-m', 'pip', 'install', 'imageio-ffmpeg'], capture_output=True, text=True)
-            logger.info(f"Install stdout: {result.stdout}")
+            print(f"[FFMPEG] Install stdout: {result.stdout[:500] if result.stdout else 'empty'}")
             if result.returncode != 0:
-                logger.error(f"Install stderr: {result.stderr}")
-            # Try importing again
+                print(f"[FFMPEG] Install stderr: {result.stderr[:500] if result.stderr else 'empty'}")
             try:
                 import imageio_ffmpeg
                 path = imageio_ffmpeg.get_ffmpeg_exe()
-                logger.info(f"Found ffmpeg after install: {path}")
+                print(f"[FFMPEG] Found after install: {path}")
                 return path
             except Exception as e2:
-                logger.error(f"Still cannot import after install: {e2}")
+                print(f"[FFMPEG] Still cannot import: {e2}")
                 return 'ffmpeg'
         except Exception as e:
-            logger.error(f"Failed to install imageio-ffmpeg: {e}")
+            print(f"[FFMPEG] Failed to install: {e}")
             return 'ffmpeg'
     except Exception as e:
-        logger.error(f"Error getting ffmpeg path: {e}")
+        print(f"[FFMPEG] Error: {e}")
         return 'ffmpeg'
 
 FFMPEG_PATH = get_ffmpeg_path()
+print(f"[FFMPEG] Using path: {FFMPEG_PATH}")
 
 def convert_to_wav(input_path):
     try:
