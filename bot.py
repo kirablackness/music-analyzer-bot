@@ -232,11 +232,15 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Не могу найти аудиофайл")
             return
         
+        logger.info(f"Received audio file: {audio.file_id}")
         file = await context.bot.get_file(audio.file_id)
         
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
             await file.download_to_drive(tmp.name)
             tmp_path = tmp.name
+        
+        logger.info(f"File downloaded to: {tmp_path}")
+        logger.info(f"File size: {os.path.getsize(tmp_path)} bytes")
         
         result = analyze_track(tmp_path)
         
@@ -253,13 +257,13 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"Duration: {result['duration']}"
             )
         else:
-            response = "Ошибка анализа"
+            response = "Ошибка анализа. Попробуйте WAV-файл или короткий трек."
             reply_markup = None
         
         await update.message.reply_text(response, reply_markup=reply_markup)
         
     except Exception as e:
-        logger.error(f"Error: {e}")
+        logger.error(f"Handle audio error: {e}")
         await update.message.reply_text("Произошла ошибка")
 
 async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
