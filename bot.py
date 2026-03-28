@@ -9,6 +9,12 @@ import numpy as np
 import pyloudnorm as pyln
 import yt_dlp
 
+try:
+    import imageio_ffmpeg
+    FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
+except:
+    FFMPEG_PATH = 'ffmpeg'
+
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 
 logging.basicConfig(level=logging.INFO)
@@ -19,7 +25,7 @@ def convert_to_wav(input_path):
         logger.info(f"Converting {input_path} to WAV...")
         output_path = input_path.rsplit('.', 1)[0] + '.wav'
         result = subprocess.run([
-            'ffmpeg', '-i', input_path, 
+            FFMPEG_PATH, '-i', input_path, 
             '-ar', '22050',
             '-ac', '1',
             '-y',

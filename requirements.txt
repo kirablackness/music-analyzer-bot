@@ -6,3 +6,4 @@ numpy==2.4.3
 soundfile==0.13.1
 scipy==1.17.1
 setuptools==82.0.1
+imageio-ffmpeg==0.4.9
