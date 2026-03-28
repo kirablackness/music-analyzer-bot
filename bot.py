@@ -118,20 +118,24 @@ def analyze_track(file_path):
         
         logger.info(f"Key: {key}")
         
-        # LUFS calculation
+        # LUFS calculation - simplified
         logger.info("Analyzing LUFS...")
-        s = aubio.source(file_path, samplerate, 512)
-        all_samples = []
-        while True:
-            samples, read = s()
-            all_samples.extend(samples)
-            if read < 512:
-                break
-        
-        y = np.array(all_samples)
-        meter = pyln.Meter(samplerate)
-        loudness = meter.integrated_loudness(y)
-        lufs = round(loudness, 1) if loudness > -70 else "Too quiet"
+        try:
+            s = aubio.source(file_path, samplerate, 512)
+            all_samples = []
+            while True:
+                samples, read = s()
+                all_samples.extend(samples)
+                if read < 512:
+                    break
+            
+            y = np.array(all_samples)
+            meter = pyln.Meter(samplerate)
+            loudness = meter.integrated_loudness(y)
+            lufs = round(loudness, 1) if loudness > -70 else "Too quiet"
+        except Exception as e:
+            logger.error(f"LUFS error: {e}")
+            lufs = "N/A"
         
         logger.info(f"LUFS: {lufs}")
         logger.info("Analysis complete!")
