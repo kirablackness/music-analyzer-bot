@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 KEYBOARDS = {
     "main": [
-        [InlineKeyboardButton("🎵 Анализ трека", callback_data="analyze")],
+        # [InlineKeyboardButton("🎵 Анализ трека", callback_data="analyze")],
         [InlineKeyboardButton("📥 Скачать с YouTube/SoundCloud", callback_data="download")],
         [InlineKeyboardButton("ℹ️ Помощь", callback_data="help")],
     ],
@@ -34,20 +34,17 @@ KEYBOARDS = {
 
 MESSAGES = {
     "welcome": "🎵 *Music Analyzer Bot*\n\nВыбери действие:",
-    "analyze_help": (
-        "📤 *Отправь мне:*\n\n"
-        "• Аудиофайл (MP3, WAV, FLAC)\n"
-        "• Или ссылку на YouTube/SoundCloud\n\n"
-        "Я определю BPM, громкость и длительность."
-    ),
+    # "analyze_help": (
+    #     "📤 *Отправь мне:*\n\n"
+    #     "• Аудиофайл (MP3, WAV, FLAC)\n"
+    #     "• Или ссылку на YouTube/SoundCloud\n\n"
+    #     "Я определю BPM, громкость и длительность."
+    # ),
     "download_help": "📥 *Отправь ссылку на YouTube или SoundCloud*\n\nЯ скачаю и отправлю файл.",
     "help": (
         "ℹ️ *Что я умею:*\n\n"
-        "• Определяю BPM\n"
-        "• Измеряю громкость (LUFS)\n"
-        "• Показываю длительность\n"
         "• Скачиваю с YouTube/SoundCloud\n\n"
-        "Просто отправь файл или ссылку!"
+        "Просто отправь ссылку!"
     ),
 }
 
@@ -328,7 +325,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("download", download_command))
     app.add_handler(CallbackQueryHandler(button_callback))
-    app.add_handler(MessageHandler(filters.AUDIO | filters.Document.AUDIO, handle_audio))
+    # app.add_handler(MessageHandler(filters.AUDIO | filters.Document.AUDIO, handle_audio))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_url))
     
     logger.info("Bot started")
