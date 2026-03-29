@@ -267,7 +267,7 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_valid_url(url):
         return
     
-    mode = context.user_data.get("mode", "analyze")
+    mode = context.user_data.get("mode", "download")
     
     if mode == "download":
         await _handle_download_url(update, url)
