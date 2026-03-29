@@ -60,6 +60,11 @@ YDL_OPTS_DOWNLOAD = {
     "quiet": True,
     "no_warnings": True,
     "nocheckcertificate": True,
+    "postprocessors": [{
+        "key": "FFmpegExtractAudio",
+        "preferredcodec": "mp3",
+        "preferredquality": "192",
+    }],
 }
 
 ALLOWED_DOMAINS = ["youtube", "youtu.be", "soundcloud", "vimeo"]
