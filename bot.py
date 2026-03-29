@@ -132,6 +132,7 @@ def cleanup_file(file_path: str, temp_dir: str = None):
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["mode"] = "download"
     await update.message.reply_text(
         MESSAGES["welcome"],
         reply_markup=InlineKeyboardMarkup(KEYBOARDS["main"]),
@@ -225,8 +226,9 @@ async def download_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         
         await update.message.reply_text(
-            "Готово!",
-            reply_markup=InlineKeyboardMarkup(KEYBOARDS["menu"])
+            MESSAGES["welcome"],
+            reply_markup=InlineKeyboardMarkup(KEYBOARDS["main"]),
+            parse_mode="Markdown"
         )
     else:
         await update.message.reply_text("Не удалось скачать файл")
@@ -310,8 +312,9 @@ async def _handle_download_url(update: Update, url: str):
             )
         
         await update.message.reply_text(
-            "Готово!",
-            reply_markup=InlineKeyboardMarkup(KEYBOARDS["menu"])
+            MESSAGES["welcome"],
+            reply_markup=InlineKeyboardMarkup(KEYBOARDS["main"]),
+            parse_mode="Markdown"
         )
     else:
         await update.message.reply_text("Не удалось скачать файл")
