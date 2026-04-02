@@ -466,8 +466,14 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    print("=== Message received ===", update.message.text)
-    logger.info(f"Message received: {update.message.text}")
+    print(f"=== HANDLE_URL CALLED === message: {update.message}")
+    if update.message:
+        print(f"=== Message text: {update.message.text}")
+    logger.info(f"Message received: {update.message.text if update.message else 'No message'}")
+    
+    if not update.message:
+        print("=== No message in update ===")
+        return
     
     user_id = update.message.from_user.id
     
