@@ -231,7 +231,8 @@ def search_youtube(query: str, count: int = 5) -> list:
     
     try:
         encoded_query = query.replace('"', '\\"')
-        cmd = f'yt-dlp "https://music.youtube.com/search?q={encoded_query}" --flat-playlist --print "%(id)s|||%(title)s|||%(duration_string)s|||%(artist)s" --no-warnings'
+        # Get id, title, duration, artist, uploader (as fallback)
+        cmd = f'yt-dlp "https://music.youtube.com/search?q={encoded_query}" --flat-playlist --print "%(id)s|||%(title)s|||%(duration_string)s|||%(artist)s|||%(uploader)s" --no-warnings'
         result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
         
         results = []
@@ -239,15 +240,23 @@ def search_youtube(query: str, count: int = 5) -> list:
             if not line:
                 continue
             parts = line.split('|||')
-            if len(parts) >= 4:
-                id_, title, duration, artist = parts[0], parts[1], parts[2], parts[3]
+            if len(parts) >= 5:
+                id_, title, duration, artist, uploader = parts[0], parts[1], parts[2], parts[3], parts[4]
                 
+                # Use artist if available, otherwise use uploader/channel
                 clean_artist = artist if artist and artist != "NA" else ""
+                if not clean_artist and uploader and uploader != "NA":
+                    clean_artist = uploader
+                
                 clean_title = title if title else "Без названия"
                 display_title = f"{clean_artist} - {clean_title}" if clean_artist else clean_title
                 
-                duration_sec = parse_duration(duration) if duration and duration != "NA" else 0
-                duration_str = duration if duration and duration != "NA" else ""
+                # Parse duration
+                duration_str = ""
+                duration_sec = 0
+                if duration and duration != "NA":
+                    duration_str = duration
+                    duration_sec = parse_duration(duration)
                 
                 if id_ and len(id_) == 11 and clean_title != "NA":
                     results.append({
