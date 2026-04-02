@@ -34,7 +34,10 @@ search_cache = {}
 
 KEYBOARDS = {
     "main": [
-        [InlineKeyboardButton("📥 Скачать", callback_data="download")],
+        [
+            InlineKeyboardButton("📥 Скачать аудио", callback_data="mode_audio"),
+            InlineKeyboardButton("📥 Скачать видео", callback_data="mode_video")
+        ],
         [InlineKeyboardButton("ℹ️ Инфо", callback_data="info")],
         [InlineKeyboardButton("❓ Помощь", callback_data="help")],
     ],
@@ -45,6 +48,8 @@ KEYBOARDS = {
 MESSAGES = {
     "welcome": "🎵 *Music Analyzer Bot*\n\nВыбери действие:",
     "download_help": "📥 *Отправь ссылку или название песни*\n\n• Ссылка с YouTube/TikTok/Instagram/SoundCloud\n• Или просто напиши название трека - я найду его",
+    "mode_audio": "🎵 *Режим: Скачать аудио*\n\nОтправь ссылку или название песни",
+    "mode_video": "🎬 *Режим: Скачать видео*\n\nОтправь ссылку или название песни",
     "help": (
         "ℹ️ *Что я умею:*\n\n"
         "• Скачиваю с YouTube, TikTok, Instagram, SoundCloud\n"
@@ -58,12 +63,10 @@ MESSAGES = {
         "📱 TikTok (все видео)\n"
         "📸 Instagram (reels, посты)\n"
         "🎵 SoundCloud (треки)\n\n"
-        "Просто отправь ссылку или название песни!\n"
-        "При поиске покажу список - выбери нужный трек.\n\n"
+        "Просто отправь ссылку или название песни!\n\n"
         "⚠️ *Ограничения:*\n"
         "• Максимум 15 минут\n"
-        "• Размер до 50МБ\n"
-        "• 30 сек между запросами\n\n"
+        "• Размер до 50МБ\n\n"
         "📋 *Команды:*\n"
         "/start - начало\n"
         "/info - информация о боте\n"
@@ -272,7 +275,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     handlers = {
-        "download": lambda: _show_download_menu(query, context),
+        "mode_audio": lambda: _set_mode_audio(query, context),
+        "mode_video": lambda: _set_mode_video(query, context),
         "info": lambda: _show_info_menu(query),
         "help": lambda: _show_help_menu(query),
         "menu": lambda: _show_main_menu(query, context),
@@ -301,10 +305,19 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Callback error: {e}")
 
 
-async def _show_download_menu(query, context):
-    context.user_data["mode"] = "download"
+async def _set_mode_audio(query, context):
+    context.user_data["mode"] = "audio"
     await query.edit_message_text(
-        MESSAGES["download_help"],
+        MESSAGES["mode_audio"],
+        reply_markup=InlineKeyboardMarkup(KEYBOARDS["back"]),
+        parse_mode="Markdown"
+    )
+
+
+async def _set_mode_video(query, context):
+    context.user_data["mode"] = "video"
+    await query.edit_message_text(
+        MESSAGES["mode_video"],
         reply_markup=InlineKeyboardMarkup(KEYBOARDS["back"]),
         parse_mode="Markdown"
     )
@@ -503,12 +516,25 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Платформа не поддерживается")
             return
         
-        format_type = "video" if platform in ["tiktok", "instagram"] else "audio"
+        # Check if user selected mode via buttons
+        user_mode = context.user_data.get("mode")
+        print(f"=== User mode: {user_mode} ===")
+        
+        if user_mode == "video":
+            format_type = "video"
+        elif user_mode == "audio":
+            format_type = "audio"
+        else:
+            # Default: YouTube -> audio, TikTok/Instagram -> video
+            format_type = "video" if platform in ["tiktok", "instagram"] else "audio"
+        
         print(f"=== Format: {format_type} ===")
         print(f"=== Calling _download_and_send ===")
         await _download_and_send(update.message, context, url, format_type)
     else:
-        print("=== No URL found, calling search ===")
+        # Search - always audio by default or user mode
+        user_mode = context.user_data.get("mode")
+        print(f"=== No URL found, calling search. User mode: {user_mode} ===")
         await handle_search(update, context, text)
 
 
@@ -529,6 +555,9 @@ async def handle_search(update: Update, context: ContextTypes.DEFAULT_TYPE, quer
     import asyncio
     asyncio.get_event_loop().call_later(300, lambda: search_cache.pop(cache_key, None))
     
+    # Get user's preferred format or default to audio
+    user_mode = context.user_data.get("mode", "audio")
+    
     keyboard = []
     for i, item in enumerate(results):
         duration_text = f" [{item['duration']}]" if item['duration'] else ""
@@ -539,15 +568,22 @@ async def handle_search(update: Update, context: ContextTypes.DEFAULT_TYPE, quer
                 InlineKeyboardButton(f"❌ {short_title}{duration_text} (длинное)", callback_data=f"toolong_{i}")
             ])
         else:
-            keyboard.append([
-                InlineKeyboardButton(f"🎵 {short_title}{duration_text}", callback_data=f"dl_{cache_key}_{i}_audio"),
-                InlineKeyboardButton("🎬 Видео", callback_data=f"dl_{cache_key}_{i}_video")
-            ])
+            # If user selected video mode, show video button, otherwise audio
+            if user_mode == "video":
+                keyboard.append([
+                    InlineKeyboardButton(f"🎬 {short_title}{duration_text}", callback_data=f"dl_{cache_key}_{i}_video")
+                ])
+            else:
+                keyboard.append([
+                    InlineKeyboardButton(f"🎵 {short_title}{duration_text}", callback_data=f"dl_{cache_key}_{i}_audio"),
+                    InlineKeyboardButton("🎬 Видео", callback_data=f"dl_{cache_key}_{i}_video")
+                ])
     
     keyboard.append([InlineKeyboardButton("❌ Отмена", callback_data=f"cancel_{cache_key}")])
     
+    format_text = "MP3" if user_mode == "audio" else "Видео"
     await status_msg.edit_text(
-        f'🎵 Результаты поиска "{query}":',
+        f'🎵 Результаты поиска "{query}" (формат: {format_text}):',
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
