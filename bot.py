@@ -174,22 +174,16 @@ def download_audio(url: str, for_analysis: bool = True, format_type: str = "audi
     template = f"{base_path}.%(ext)s"
     
     try:
-        # Add user agent and headers to avoid bot detection
-        user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-        
         if format_type == "audio":
-            cmd = f'yt-dlp --user-agent "{user_agent}" "{url}" --no-playlist -x --audio-format mp3 --audio-quality 0 -o "{template}"'
+            cmd = f'yt-dlp "{url}" --no-playlist -x --audio-format mp3 --audio-quality 0 -o "{template}"'
         else:
-            cmd = f'yt-dlp --user-agent "{user_agent}" "{url}" --no-playlist -f "bestvideo[height<=720]+bestaudio/best[height<=720]/best" --merge-output-format mp4 -o "{template}"'
+            cmd = f'yt-dlp "{url}" --no-playlist -f "bestvideo[height<=720]+bestaudio/best[height<=720]/best" --merge-output-format mp4 -o "{template}"'
         
         logger.info(f"Running: {cmd}")
         result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=300)
         
         if result.returncode != 0:
             logger.error(f"yt-dlp error: {result.stderr}")
-            # Try to show user-friendly error
-            if "Sign in" in result.stderr or "bot" in result.stderr.lower():
-                logger.error("YouTube bot detection - try updating yt-dlp: pip3 install --upgrade yt-dlp")
             shutil.rmtree(temp_dir, ignore_errors=True)
             return None, None, None
         
@@ -206,12 +200,19 @@ def download_audio(url: str, for_analysis: bool = True, format_type: str = "audi
             shutil.rmtree(temp_dir, ignore_errors=True)
             return None, None, None
         
-        # Get title
-        title_cmd = f'yt-dlp --print "%(title)s" --no-warnings "{url}"'
+        # Get title and artist
+        title_cmd = f'yt-dlp --print "%(artist)s|||%(title)s" --no-warnings "{url}"'
         title_result = subprocess.run(title_cmd, shell=True, capture_output=True, text=True, timeout=30)
-        title = title_result.stdout.strip() or "Unknown"
         
-        return filename, title, temp_dir
+        parts = title_result.stdout.strip().split("|||")
+        if len(parts) >= 2:
+            artist = parts[0] if parts[0] and parts[0] != "NA" else ""
+            title = parts[1] or "Unknown"
+            full_title = f"{artist} - {title}" if artist else title
+        else:
+            full_title = parts[0] if parts[0] else "Unknown"
+        
+        return filename, full_title, temp_dir
     
     except Exception as e:
         logger.error(f"Download error: {e}")
