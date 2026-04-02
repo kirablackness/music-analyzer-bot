@@ -476,27 +476,38 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     user_id = update.message.from_user.id
+    print(f"=== User ID: {user_id} ===")
     
     cooldown = check_cooldown(user_id)
+    print(f"=== Cooldown check: {cooldown} ===")
     if cooldown:
+        print(f"=== COOLDOWN ACTIVE: {cooldown} sec ===")
         await update.message.reply_text(f"⏳ Подождите {cooldown} сек")
         return
     
     text = update.message.text.strip()
+    print(f"=== Text: {text} ===")
     
     url_match = re.search(r'(https?://[^\s]+)', text)
+    print(f"=== URL match: {url_match} ===")
     
     if url_match:
         url = url_match.group(1)
+        print(f"=== URL found: {url} ===")
         platform = detect_platform(url)
+        print(f"=== Platform: {platform} ===")
         
         if not platform:
+            print("=== Platform not supported ===")
             await update.message.reply_text("❌ Платформа не поддерживается")
             return
         
         format_type = "video" if platform in ["tiktok", "instagram"] else "audio"
+        print(f"=== Format: {format_type} ===")
+        print(f"=== Calling _download_and_send ===")
         await _download_and_send(update.message, context, url, format_type)
     else:
+        print("=== No URL found, calling search ===")
         await handle_search(update, context, text)
 
 
