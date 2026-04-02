@@ -343,16 +343,22 @@ async def _show_main_menu(query, context):
 
 
 async def _handle_search_download(query, context):
+    print(f"=== _handle_search_download called: {query.data} ===")
     data = query.data.split("_")
-    if len(data) < 4:
+    print(f"=== Split data: {data} ===")
+    
+    if len(data) < 5:
         await query.answer("Ошибка данных", show_alert=True)
         return
     
     cache_key = f"{data[1]}_{data[2]}"
-    index = int(data[2])
-    format_type = data[3]
+    index = int(data[3])
+    format_type = data[4]
+    
+    print(f"=== Cache key: {cache_key}, index: {index}, format: {format_type} ===")
     
     if cache_key not in search_cache:
+        print(f"=== Cache key not found! Available: {list(search_cache.keys())} ===")
         await query.answer("Результаты устарели. Попробуйте поиск заново.", show_alert=True)
         return
     
@@ -362,11 +368,13 @@ async def _handle_search_download(query, context):
         return
     
     selected = results[index]
+    print(f"=== Selected: {selected} ===")
     format_text = "MP3" if format_type == "audio" else "видео"
     
     await query.edit_message_text(f"Скачиваю {format_text}: {selected['title']}")
     
     url = f"https://www.youtube.com/watch?v={selected['id']}"
+    print(f"=== Calling _download_and_send with URL: {url} ===")
     await _download_and_send(query.message, context, url, format_type, selected['title'])
 
 
