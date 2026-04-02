@@ -176,7 +176,7 @@ def download_audio(url: str, for_analysis: bool = True, format_type: str = "audi
     try:
         # Add --no-check-certificates and extract-audio like bot.js
         if format_type == "audio":
-            cmd = f'yt-dlp --no-check-certificates --no-playlist -x --audio-format mp3 --audio-quality 0 -o "{template}" "{url}"'
+            cmd = f'yt-dlp --no-check-certificates --no-playlist -x --audio-format mp3 --audio-quality 0 --embed-thumbnail --add-metadata -o "{template}" "{url}"'
         else:
             cmd = f'yt-dlp --no-check-certificates --no-playlist -f "bestvideo[height<=720]+bestaudio/best[height<=720]/best" --merge-output-format mp4 -o "{template}" "{url}"'
         
@@ -201,7 +201,7 @@ def download_audio(url: str, for_analysis: bool = True, format_type: str = "audi
             shutil.rmtree(temp_dir, ignore_errors=True)
             return None, None, None
         
-        # Get title and artist
+        # Get title and artist like bot.js
         title_cmd = f'yt-dlp --no-check-certificates --print "%(artist)s|||%(title)s" --no-warnings "{url}"'
         title_result = subprocess.run(title_cmd, shell=True, capture_output=True, text=True, timeout=30)
         
@@ -213,6 +213,7 @@ def download_audio(url: str, for_analysis: bool = True, format_type: str = "audi
         else:
             full_title = parts[0] if parts[0] else "Unknown"
         
+        logger.info(f"Downloaded: {full_title}")
         return filename, full_title, temp_dir
     
     except Exception as e:
