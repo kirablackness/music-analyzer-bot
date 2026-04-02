@@ -625,14 +625,14 @@ async def handle_search(update: Update, context: ContextTypes.DEFAULT_TYPE, quer
     keyboard = []
     for i, item in enumerate(results):
         duration_text = f" [{item['duration']}]" if item['duration'] else ""
-        short_title = item['title'][:40] + "..." if len(item['title']) > 40 else item['title']
+        # Show full title (Artist - Title) without cutting too much
+        short_title = item['title'][:55] + "..." if len(item['title']) > 55 else item['title']
         
         if item['duration_sec'] > MAX_DURATION_MINUTES * 60:
             keyboard.append([
                 InlineKeyboardButton(f"❌ {short_title}{duration_text} (длинное)", callback_data=f"toolong_{i}")
             ])
         else:
-            # Show only one button based on user mode
             if user_mode == "video":
                 keyboard.append([
                     InlineKeyboardButton(f"🎬 {short_title}{duration_text}", callback_data=f"dl_{cache_key}_{i}_video")
