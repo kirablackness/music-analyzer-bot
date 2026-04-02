@@ -6,7 +6,6 @@ import logging
 import time
 import re
 import asyncio
-import requests
 from typing import Optional
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -16,8 +15,6 @@ import librosa
 import numpy as np
 import pyloudnorm as pyln
 import yt_dlp
-from mutagen.easyid3 import EasyID3
-from mutagen.id3 import ID3, APIC, error as ID3Error
 
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
@@ -90,11 +87,19 @@ YDL_OPTS_DOWNLOAD_AUDIO = {
     "quiet": True,
     "no_warnings": True,
     "nocheckcertificate": True,
-    "postprocessors": [{
-        "key": "FFmpegExtractAudio",
-        "preferredcodec": "mp3",
-        "preferredquality": "192",
-    }],
+    "postprocessors": [
+        {
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": "mp3",
+            "preferredquality": "192",
+        },
+        {
+            "key": "FFmpegMetadata",
+        },
+        {
+            "key": "EmbedThumbnail",
+        },
+    ],
 }
 
 YDL_OPTS_DOWNLOAD_VIDEO = {
@@ -182,8 +187,6 @@ def download_audio(url: str, for_analysis: bool = True, format_type: str = "audi
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=True)
             title = info.get("title", "Unknown")
-            artist = info.get("artist") or info.get("uploader", "Unknown")
-            thumbnail_url = info.get("thumbnail", "")
             filename = ydl.prepare_filename(info)
         
         if not os.path.exists(filename):
@@ -191,53 +194,12 @@ def download_audio(url: str, for_analysis: bool = True, format_type: str = "audi
             if files:
                 filename = os.path.join(temp_dir, files[0])
         
-        # Add metadata and thumbnail to MP3
-        if format_type == "audio" and filename.endswith(".mp3") and not for_analysis:
-            try:
-                add_metadata_and_thumbnail(filename, title, artist, thumbnail_url)
-            except Exception as e:
-                logger.error(f"Error adding metadata: {e}")
-        
         return filename, title, temp_dir
     
     except Exception as e:
         logger.error(f"Download error: {e}")
         shutil.rmtree(temp_dir, ignore_errors=True)
         return None, None, None
-
-
-def add_metadata_and_thumbnail(filepath: str, title: str, artist: str, thumbnail_url: str = None):
-    """Add ID3 metadata and thumbnail to MP3 file"""
-    try:
-        # Try to add/edit ID3 tags
-        try:
-            audio = EasyID3(filepath)
-        except ID3Error:
-            audio = EasyID3()
-        
-        audio['title'] = title or "Unknown"
-        audio['artist'] = artist or "Unknown"
-        audio.save(filepath)
-        
-        # Add thumbnail
-        if thumbnail_url:
-            try:
-                response = requests.get(thumbnail_url, timeout=10)
-                if response.status_code == 200:
-                    audio = ID3(filepath)
-                    audio.add(APIC(
-                        encoding=3,
-                        mime='image/jpeg',
-                        type=3,  # 3 means cover image
-                        desc='Cover',
-                        data=response.content
-                    ))
-                    audio.save()
-                    logger.info(f"Added thumbnail to {filepath}")
-            except Exception as e:
-                logger.error(f"Error adding thumbnail: {e}")
-    except Exception as e:
-        logger.error(f"Error in add_metadata_and_thumbnail: {e}")
 
 
 def search_youtube(query: str, count: int = 5) -> list:
