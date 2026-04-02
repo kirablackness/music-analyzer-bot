@@ -532,7 +532,7 @@ async def handle_search(update: Update, context: ContextTypes.DEFAULT_TYPE, quer
     keyboard = []
     for i, item in enumerate(results):
         duration_text = f" [{item['duration']}]" if item['duration'] else ""
-        short_title = item['title'][:40] + "..." if len(item['title']) > 40 else item['title']
+        short_title = item['title'][:35] + "..." if len(item['title']) > 35 else item['title']
         
         if item['duration_sec'] > MAX_DURATION_MINUTES * 60:
             keyboard.append([
@@ -540,7 +540,8 @@ async def handle_search(update: Update, context: ContextTypes.DEFAULT_TYPE, quer
             ])
         else:
             keyboard.append([
-                InlineKeyboardButton(f"🎵 {short_title}{duration_text}", callback_data=f"dl_{cache_key}_{i}_audio")
+                InlineKeyboardButton(f"🎵 {short_title}{duration_text}", callback_data=f"dl_{cache_key}_{i}_audio"),
+                InlineKeyboardButton("🎬 Видео", callback_data=f"dl_{cache_key}_{i}_video")
             ])
     
     keyboard.append([InlineKeyboardButton("❌ Отмена", callback_data=f"cancel_{cache_key}")])
