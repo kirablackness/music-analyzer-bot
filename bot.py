@@ -235,6 +235,8 @@ def cleanup_file(file_path: str, temp_dir: str = None):
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print("=== START command received ===")
+    logger.info("Start command received")
     context.user_data["mode"] = "download"
     await update.message.reply_text(
         MESSAGES["welcome"],
@@ -464,6 +466,9 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print("=== Message received ===", update.message.text)
+    logger.info(f"Message received: {update.message.text}")
+    
     user_id = update.message.from_user.id
     
     cooldown = check_cooldown(user_id)
