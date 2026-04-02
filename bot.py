@@ -509,7 +509,7 @@ async def handle_search(update: Update, context: ContextTypes.DEFAULT_TYPE, quer
     
     status_msg = await update.message.reply_text("🔍 Ищу на YouTube...")
     
-    results = search_youtube(query)
+    results = search_youtube(query, count=5)
     
     if not results:
         await status_msg.edit_text("❌ Ничего не найдено. Попробуйте другой запрос.")
@@ -524,22 +524,21 @@ async def handle_search(update: Update, context: ContextTypes.DEFAULT_TYPE, quer
     keyboard = []
     for i, item in enumerate(results):
         duration_text = f" [{item['duration']}]" if item['duration'] else ""
-        short_title = item['title'][:35] + "..." if len(item['title']) > 35 else item['title']
+        short_title = item['title'][:40] + "..." if len(item['title']) > 40 else item['title']
         
         if item['duration_sec'] > MAX_DURATION_MINUTES * 60:
             keyboard.append([
-                InlineKeyboardButton(f"❌ {short_title}{duration_text}", callback_data=f"toolong_{i}")
+                InlineKeyboardButton(f"❌ {short_title}{duration_text} (длинное)", callback_data=f"toolong_{i}")
             ])
         else:
             keyboard.append([
-                InlineKeyboardButton(f"🎵 {short_title}{duration_text}", callback_data=f"dl_{cache_key}_{i}_audio"),
-                InlineKeyboardButton("🎬 Видео", callback_data=f"dl_{cache_key}_{i}_video")
+                InlineKeyboardButton(f"🎵 {short_title}{duration_text}", callback_data=f"dl_{cache_key}_{i}_audio")
             ])
     
     keyboard.append([InlineKeyboardButton("❌ Отмена", callback_data=f"cancel_{cache_key}")])
     
     await status_msg.edit_text(
-        f'🎵 Результаты поиска "{query}":\n\n🎵 - MP3 | 🎬 - Видео',
+        f'🎵 Результаты поиска "{query}":',
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
