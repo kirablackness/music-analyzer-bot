@@ -415,9 +415,12 @@ async def download_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def _download_and_send(message, context, url: str, format_type: str, title: str = None):
     logger.info(f"Downloading: {url}, format: {format_type}")
     
-    # Send initial status message
+    # Send initial status message with title
     format_text = "MP3" if format_type == "audio" else "видео"
-    status_msg = await message.reply_text(f"⏳ Скачиваю {format_text}...")
+    if title:
+        status_msg = await message.reply_text(f"⏳ Скачиваю {format_text}: {title}")
+    else:
+        status_msg = await message.reply_text(f"⏳ Скачиваю {format_text}...")
     
     filename, downloaded_title, temp_dir = download_audio(url, for_analysis=False, format_type=format_type)
     
