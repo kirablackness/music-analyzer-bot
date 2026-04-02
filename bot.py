@@ -34,8 +34,9 @@ search_cache = {}
 
 KEYBOARDS = {
     "main": [
-        [InlineKeyboardButton("📥 Скачать с YouTube/SoundCloud/TikTok/Instagram", callback_data="download")],
-        [InlineKeyboardButton("ℹ️ Помощь", callback_data="help")],
+        [InlineKeyboardButton("📥 Скачать", callback_data="download")],
+        [InlineKeyboardButton("ℹ️ Инфо", callback_data="info")],
+        [InlineKeyboardButton("❓ Помощь", callback_data="help")],
     ],
     "back": [[InlineKeyboardButton("◀️ Назад", callback_data="menu")]],
     "menu": [[InlineKeyboardButton("🏠 Меню", callback_data="menu")]],
@@ -49,6 +50,25 @@ MESSAGES = {
         "• Скачиваю с YouTube, TikTok, Instagram, SoundCloud\n"
         "• Ищу музыку по названию\n\n"
         "Просто отправь ссылку или название песни!"
+    ),
+    "info": (
+        "🎬 *Media Download Bot*\n\n"
+        "📦 *Поддерживает:*\n"
+        "🎬 YouTube (видео, shorts)\n"
+        "📱 TikTok (все видео)\n"
+        "📸 Instagram (reels, посты)\n"
+        "🎵 SoundCloud (треки)\n\n"
+        "Просто отправь ссылку или название песни!\n"
+        "При поиске покажу список - выбери нужный трек.\n\n"
+        "⚠️ *Ограничения:*\n"
+        "• Максимум 15 минут\n"
+        "• Размер до 50МБ\n"
+        "• 30 сек между запросами\n\n"
+        "📋 *Команды:*\n"
+        "/start - начало\n"
+        "/info - информация о боте\n"
+        "/help - помощь\n"
+        "/status - статус бота"
     ),
 }
 
@@ -223,12 +243,35 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        MESSAGES["info"],
+        parse_mode="Markdown"
+    )
+
+
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    import subprocess
+    try:
+        result = subprocess.run(["yt-dlp", "--version"], capture_output=True, text=True)
+        version = result.stdout.strip()
+        await update.message.reply_text(
+            f"✅ Бот работает\n"
+            f"🔧 yt-dlp: {version}\n"
+            f"⚙️ Лимиты: {MAX_DURATION_MINUTES} мин, {MAX_FILE_SIZE_MB}МБ",
+            parse_mode="Markdown"
+        )
+    except:
+        await update.message.reply_text("❌ yt-dlp не установлен")
+
+
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
     handlers = {
         "download": lambda: _show_download_menu(query, context),
+        "info": lambda: _show_info_menu(query),
         "help": lambda: _show_help_menu(query),
         "menu": lambda: _show_main_menu(query, context),
     }
@@ -260,6 +303,14 @@ async def _show_download_menu(query, context):
     context.user_data["mode"] = "download"
     await query.edit_message_text(
         MESSAGES["download_help"],
+        reply_markup=InlineKeyboardMarkup(KEYBOARDS["back"]),
+        parse_mode="Markdown"
+    )
+
+
+async def _show_info_menu(query):
+    await query.edit_message_text(
+        MESSAGES["info"],
         reply_markup=InlineKeyboardMarkup(KEYBOARDS["back"]),
         parse_mode="Markdown"
     )
@@ -487,6 +538,8 @@ def main():
     app = Application.builder().token(BOT_TOKEN).build()
     
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("info", info_command))
+    app.add_handler(CommandHandler("status", status_command))
     app.add_handler(CommandHandler("download", download_command))
     app.add_handler(CallbackQueryHandler(button_callback))
     # app.add_handler(MessageHandler(filters.AUDIO | filters.Document.AUDIO, handle_audio))
