@@ -203,35 +203,35 @@ def download_audio(url: str, for_analysis: bool = True, format_type: str = "audi
 
 
 def search_youtube(query: str, count: int = 5) -> list:
-    opts = {
-        "quiet": True,
-        "no_warnings": True,
-        "nocheckcertificate": True,
-        "extract_flat": "in_playlist",
-        "getduration": True,
-    }
+    import subprocess
     
-    results = []
     try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(f"ytsearch{count}:{query}", download=False)
-            
-            for entry in info.get("entries", []):
-                duration_sec = entry.get("duration", 0) or 0
-                # Convert seconds to MM:SS format
-                if duration_sec:
-                    minutes = duration_sec // 60
-                    seconds = duration_sec % 60
-                    duration_str = f"{minutes}:{seconds:02d}"
-                else:
-                    duration_str = ""
+        encoded_query = query.replace('"', '\\"')
+        cmd = f'yt-dlp "https://music.youtube.com/search?q={encoded_query}" --flat-playlist --print "%(id)s|||%(title)s|||%(duration_string)s|||%(artist)s" --no-warnings'
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
+        
+        results = []
+        for line in result.stdout.strip().split('\n'):
+            if not line:
+                continue
+            parts = line.split('|||')
+            if len(parts) >= 4:
+                id_, title, duration, artist = parts[0], parts[1], parts[2], parts[3]
                 
-                results.append({
-                    "id": entry.get("id", ""),
-                    "title": entry.get("title", "Unknown"),
-                    "duration": duration_str,
-                    "duration_sec": duration_sec,
-                })
+                clean_artist = artist if artist and artist != "NA" else ""
+                clean_title = title if title else "Без названия"
+                display_title = f"{clean_artist} - {clean_title}" if clean_artist else clean_title
+                
+                duration_sec = parse_duration(duration) if duration and duration != "NA" else 0
+                duration_str = duration if duration and duration != "NA" else ""
+                
+                if id_ and len(id_) == 11 and clean_title != "NA":
+                    results.append({
+                        "id": id_,
+                        "title": display_title,
+                        "duration": duration_str,
+                        "duration_sec": duration_sec,
+                    })
         
         return results[:count]
     
