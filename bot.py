@@ -3,6 +3,9 @@ import gc
 import shutil
 import tempfile
 import logging
+import time
+import re
+import asyncio
 from typing import Optional
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -18,14 +21,20 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 SAMPLE_RATE = 11025
 SAMPLE_DURATION = 15.0
 
+COOLDOWN_SECONDS = 30
+MAX_FILE_SIZE_MB = 50
+MAX_DURATION_MINUTES = 15
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+user_cooldown = {}
+search_cache = {}
 
 
 KEYBOARDS = {
     "main": [
-        # [InlineKeyboardButton("🎵 Анализ трека", callback_data="analyze")],
-        [InlineKeyboardButton("📥 Скачать с YouTube/SoundCloud", callback_data="download")],
+        [InlineKeyboardButton("📥 Скачать с YouTube/SoundCloud/TikTok/Instagram", callback_data="download")],
         [InlineKeyboardButton("ℹ️ Помощь", callback_data="help")],
     ],
     "back": [[InlineKeyboardButton("◀️ Назад", callback_data="menu")]],
@@ -34,17 +43,12 @@ KEYBOARDS = {
 
 MESSAGES = {
     "welcome": "🎵 *Music Analyzer Bot*\n\nВыбери действие:",
-    # "analyze_help": (
-    #     "📤 *Отправь мне:*\n\n"
-    #     "• Аудиофайл (MP3, WAV, FLAC)\n"
-    #     "• Или ссылку на YouTube/SoundCloud\n\n"
-    #     "Я определю BPM, громкость и длительность."
-    # ),
-    "download_help": "📥 *Отправь ссылку на YouTube или SoundCloud*\n\nЯ скачаю и отправлю файл.",
+    "download_help": "📥 *Отправь ссылку или название песни*\n\n• Ссылка с YouTube/TikTok/Instagram/SoundCloud\n• Или просто напиши название трека - я найду его",
     "help": (
         "ℹ️ *Что я умею:*\n\n"
-        "• Скачиваю с YouTube/SoundCloud\n\n"
-        "Просто отправь ссылку!"
+        "• Скачиваю с YouTube, TikTok, Instagram, SoundCloud\n"
+        "• Ищу музыку по названию\n\n"
+        "Просто отправь ссылку или название песни!"
     ),
 }
 
@@ -55,7 +59,7 @@ YDL_OPTS_ANALYZE = {
     "nocheckcertificate": True,
 }
 
-YDL_OPTS_DOWNLOAD = {
+YDL_OPTS_DOWNLOAD_AUDIO = {
     "format": "bestaudio/best",
     "quiet": True,
     "no_warnings": True,
@@ -67,7 +71,21 @@ YDL_OPTS_DOWNLOAD = {
     }],
 }
 
-ALLOWED_DOMAINS = ["youtube", "youtu.be", "soundcloud", "vimeo"]
+YDL_OPTS_DOWNLOAD_VIDEO = {
+    "format": "bestvideo[height<=720]+bestaudio/best[height<=720]/best",
+    "quiet": True,
+    "no_warnings": True,
+    "nocheckcertificate": True,
+    "merge_output_format": "mp4",
+}
+
+ALLOWED_DOMAINS = {
+    "youtube": ["youtube.com", "youtu.be"],
+    "tiktok": ["tiktok.com"],
+    "instagram": ["instagram.com"],
+    "soundcloud": ["soundcloud.com"],
+    "vimeo": ["vimeo.com"],
+}
 
 
 def analyze_track(file_path: str) -> Optional[dict]:
@@ -96,10 +114,43 @@ def analyze_track(file_path: str) -> Optional[dict]:
         return None
 
 
-def download_audio(url: str, for_analysis: bool = True) -> tuple:
+def detect_platform(url: str) -> Optional[str]:
+    for platform, domains in ALLOWED_DOMAINS.items():
+        if any(domain in url for domain in domains):
+            return platform
+    return None
+
+
+def parse_duration(duration_str: str) -> int:
+    if not duration_str or duration_str == "?:??":
+        return 0
+    parts = duration_str.split(":")
+    if len(parts) == 3:
+        return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+    elif len(parts) == 2:
+        return int(parts[0]) * 60 + int(parts[1])
+    return int(parts[0]) if parts[0].isdigit() else 0
+
+
+def check_cooldown(user_id: int) -> Optional[int]:
+    now = int(time.time())
+    last = user_cooldown.get(user_id, 0)
+    diff = now - last
+    if diff < COOLDOWN_SECONDS:
+        return COOLDOWN_SECONDS - diff
+    user_cooldown[user_id] = now
+    return None
+
+
+def download_audio(url: str, for_analysis: bool = True, format_type: str = "audio") -> tuple:
     temp_dir = tempfile.mkdtemp()
-    opts = YDL_OPTS_ANALYZE if for_analysis else YDL_OPTS_DOWNLOAD.copy()
-    opts["outtmpl"] = os.path.join(temp_dir, "%(id)s.%(ext)s" if for_analysis else "%(title)s.%(ext)s")
+    
+    if for_analysis:
+        opts = YDL_OPTS_ANALYZE.copy()
+    else:
+        opts = (YDL_OPTS_DOWNLOAD_AUDIO if format_type == "audio" else YDL_OPTS_DOWNLOAD_VIDEO).copy()
+    
+    opts["outtmpl"] = os.path.join(temp_dir, "%(title)s.%(ext)s")
     
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
@@ -120,8 +171,40 @@ def download_audio(url: str, for_analysis: bool = True) -> tuple:
         return None, None, None
 
 
+def search_youtube(query: str, count: int = 5) -> list:
+    temp_dir = tempfile.mkdtemp()
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "nocheckcertificate": True,
+        "extract_flat": True,
+    }
+    
+    results = []
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(f"ytsearch{count}:{query}", download=False)
+            
+            for entry in info.get("entries", []):
+                duration_str = entry.get("duration_string", "")
+                results.append({
+                    "id": entry.get("id", ""),
+                    "title": entry.get("title", "Unknown"),
+                    "duration": duration_str,
+                    "duration_sec": parse_duration(duration_str),
+                })
+        
+        return results[:count]
+    
+    except Exception as e:
+        logger.error(f"Search error: {e}")
+        return []
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
 def is_valid_url(url: str) -> bool:
-    return any(domain in url for domain in ALLOWED_DOMAINS)
+    return detect_platform(url) is not None
 
 
 def cleanup_file(file_path: str, temp_dir: str = None):
@@ -145,11 +228,25 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     handlers = {
-        "analyze": lambda: _show_analyze_menu(query, context),
         "download": lambda: _show_download_menu(query, context),
         "help": lambda: _show_help_menu(query),
         "menu": lambda: _show_main_menu(query, context),
     }
+    
+    if query.data.startswith("dl_"):
+        await _handle_search_download(query, context)
+        return
+    
+    if query.data.startswith("toolong_"):
+        await query.answer(f"Видео длиннее {MAX_DURATION_MINUTES} минут. Выберите другое.", show_alert=True)
+        return
+    
+    if query.data.startswith("cancel_"):
+        cache_key = query.data.replace("cancel_", "")
+        if cache_key in search_cache:
+            del search_cache[cache_key]
+        await query.edit_message_text("Поиск отменён.")
+        return
     
     handler = handlers.get(query.data)
     if handler:
@@ -157,15 +254,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await handler()
         except Exception as e:
             logger.error(f"Callback error: {e}")
-
-
-async def _show_analyze_menu(query, context):
-    context.user_data["mode"] = "analyze"
-    await query.edit_message_text(
-        MESSAGES["analyze_help"],
-        reply_markup=InlineKeyboardMarkup(KEYBOARDS["back"]),
-        parse_mode="Markdown"
-    )
 
 
 async def _show_download_menu(query, context):
@@ -201,37 +289,84 @@ async def _show_main_menu(query, context):
         )
 
 
+async def _handle_search_download(query, context):
+    data = query.data.split("_")
+    if len(data) < 4:
+        await query.answer("Ошибка данных", show_alert=True)
+        return
+    
+    cache_key = f"{data[1]}_{data[2]}"
+    index = int(data[2])
+    format_type = data[3]
+    
+    if cache_key not in search_cache:
+        await query.answer("Результаты устарели. Попробуйте поиск заново.", show_alert=True)
+        return
+    
+    results = search_cache[cache_key]
+    if index >= len(results):
+        await query.answer("Ошибка выбора", show_alert=True)
+        return
+    
+    selected = results[index]
+    format_text = "MP3" if format_type == "audio" else "видео"
+    
+    await query.edit_message_text(f"Скачиваю {format_text}: {selected['title']}")
+    
+    url = f"https://www.youtube.com/watch?v={selected['id']}"
+    await _download_and_send(query.message, context, url, format_type, selected['title'])
+
+
 async def download_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await update.message.reply_text("Использование: /download <ссылка>")
         return
     
     url = context.args[0]
-    if not is_valid_url(url):
-        await update.message.reply_text("Поддерживаются только YouTube, SoundCloud, Vimeo")
+    platform = detect_platform(url)
+    if not platform:
+        await update.message.reply_text("Поддерживаются: YouTube, TikTok, Instagram, SoundCloud, Яндекс.Музыка")
         return
     
-    await update.message.reply_text("Скачиваю...")
-    
-    filename, title, temp_dir = download_audio(url, for_analysis=False)
+    await _download_and_send(update.message, context, url, "audio")
+
+
+async def _download_and_send(message, context, url: str, format_type: str, title: str = None):
+    filename, downloaded_title, temp_dir = download_audio(url, for_analysis=False, format_type=format_type)
     
     if filename and os.path.exists(filename):
-        await update.message.reply_text(f"Отправляю: {title}")
+        final_title = title or downloaded_title
+        await message.reply_text(f"Отправляю: {final_title}")
+        
+        file_size_mb = os.path.getsize(filename) / 1024 / 1024
+        if file_size_mb > MAX_FILE_SIZE_MB:
+            await message.reply_text(f"Файл слишком большой ({file_size_mb:.1f}МБ). Максимум: {MAX_FILE_SIZE_MB}МБ")
+            cleanup_file(filename, temp_dir)
+            return
+        
+        is_audio = format_type == "audio" or filename.endswith(".mp3")
+        caption = f"{'🎵' if is_audio else '🎬'} {final_title}"
         
         with open(filename, "rb") as f:
-            await update.message.reply_document(
-                document=f,
-                filename=f"{title}.mp3",
-                caption=f"🎵 {title}"
-            )
+            if is_audio:
+                await message.reply_audio(
+                    audio=f,
+                    caption=caption,
+                    title=final_title,
+                )
+            else:
+                await message.reply_video(
+                    video=f,
+                    caption=caption,
+                )
         
-        await update.message.reply_text(
+        await message.reply_text(
             MESSAGES["welcome"],
             reply_markup=InlineKeyboardMarkup(KEYBOARDS["main"]),
             parse_mode="Markdown"
         )
     else:
-        await update.message.reply_text("Не удалось скачать файл")
+        await message.reply_text("Не удалось скачать файл")
     
     cleanup_file(filename, temp_dir)
 
@@ -265,61 +400,74 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    url = update.message.text
-    if not is_valid_url(url):
+    user_id = update.message.from_user.id
+    
+    cooldown = check_cooldown(user_id)
+    if cooldown:
+        await update.message.reply_text(f"⏳ Подождите {cooldown} сек")
         return
     
-    await _handle_download_url(update, url)
+    text = update.message.text.strip()
+    
+    url_match = re.search(r'(https?://[^\s]+)', text)
+    
+    if url_match:
+        url = url_match.group(1)
+        platform = detect_platform(url)
+        
+        if not platform:
+            await update.message.reply_text("❌ Платформа не поддерживается")
+            return
+        
+        format_type = "video" if platform in ["tiktok", "instagram"] else "audio"
+        await _download_and_send(update.message, context, url, format_type)
+    else:
+        await handle_search(update, context, text)
 
 
-async def _handle_analyze_url(update: Update, url: str):
-    await update.message.reply_text("Скачиваю и анализирую...")
+async def handle_search(update: Update, context: ContextTypes.DEFAULT_TYPE, query: str):
+    user_id = update.message.from_user.id
     
-    filename, title, temp_dir = download_audio(url)
-    
-    if not filename:
-        await update.message.reply_text("Не удалось скачать")
+    cooldown = check_cooldown(user_id)
+    if cooldown:
+        await update.message.reply_text(f"⏳ Подождите {cooldown} сек")
         return
     
-    result = analyze_track(filename)
-    cleanup_file(filename, temp_dir)
+    status_msg = await update.message.reply_text("🔍 Ищу на YouTube...")
     
-    if result:
-        await update.message.reply_text(
-            f"🎵 {title}\n\n"
-            f"BPM: {result['bpm']}\n"
-            f"LUFS: {result['lufs']}\n"
-            f"Duration: {result['duration']}",
-            reply_markup=InlineKeyboardMarkup(KEYBOARDS["menu"])
-        )
-    else:
-        await update.message.reply_text("Ошибка анализа")
-
-
-async def _handle_download_url(update: Update, url: str):
-    await update.message.reply_text("Скачиваю...")
+    results = search_youtube(query)
     
-    filename, title, temp_dir = download_audio(url, for_analysis=False)
+    if not results:
+        await status_msg.edit_text("❌ Ничего не найдено. Попробуйте другой запрос.")
+        return
     
-    if filename and os.path.exists(filename):
-        await update.message.reply_text(f"Отправляю: {title}")
+    cache_key = f"{user_id}_{int(time.time())}"
+    search_cache[cache_key] = results
+    
+    import asyncio
+    asyncio.get_event_loop().call_later(300, lambda: search_cache.pop(cache_key, None))
+    
+    keyboard = []
+    for i, item in enumerate(results):
+        duration_text = f" [{item['duration']}]" if item['duration'] else ""
+        short_title = item['title'][:35] + "..." if len(item['title']) > 35 else item['title']
         
-        with open(filename, "rb") as f:
-            await update.message.reply_document(
-                document=f,
-                filename=f"{title}.mp3",
-                caption=f"🎵 {title}"
-            )
-        
-        await update.message.reply_text(
-            MESSAGES["welcome"],
-            reply_markup=InlineKeyboardMarkup(KEYBOARDS["main"]),
-            parse_mode="Markdown"
-        )
-    else:
-        await update.message.reply_text("Не удалось скачать файл")
+        if item['duration_sec'] > MAX_DURATION_MINUTES * 60:
+            keyboard.append([
+                InlineKeyboardButton(f"❌ {short_title}{duration_text}", callback_data=f"toolong_{i}")
+            ])
+        else:
+            keyboard.append([
+                InlineKeyboardButton(f"🎵 {short_title}{duration_text}", callback_data=f"dl_{cache_key}_{i}_audio"),
+                InlineKeyboardButton("🎬 Видео", callback_data=f"dl_{cache_key}_{i}_video")
+            ])
     
-    cleanup_file(filename, temp_dir)
+    keyboard.append([InlineKeyboardButton("❌ Отмена", callback_data=f"cancel_{cache_key}")])
+    
+    await status_msg.edit_text(
+        f'🎵 Результаты поиска "{query}":\n\n🎵 - MP3 | 🎬 - Видео',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 
 def main():
