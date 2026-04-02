@@ -203,12 +203,12 @@ def download_audio(url: str, for_analysis: bool = True, format_type: str = "audi
 
 
 def search_youtube(query: str, count: int = 5) -> list:
-    temp_dir = tempfile.mkdtemp()
     opts = {
         "quiet": True,
         "no_warnings": True,
         "nocheckcertificate": True,
-        "extract_flat": True,
+        "extract_flat": "in_playlist",
+        "getduration": True,
     }
     
     results = []
@@ -217,12 +217,20 @@ def search_youtube(query: str, count: int = 5) -> list:
             info = ydl.extract_info(f"ytsearch{count}:{query}", download=False)
             
             for entry in info.get("entries", []):
-                duration_str = entry.get("duration_string", "")
+                duration_sec = entry.get("duration", 0) or 0
+                # Convert seconds to MM:SS format
+                if duration_sec:
+                    minutes = duration_sec // 60
+                    seconds = duration_sec % 60
+                    duration_str = f"{minutes}:{seconds:02d}"
+                else:
+                    duration_str = ""
+                
                 results.append({
                     "id": entry.get("id", ""),
                     "title": entry.get("title", "Unknown"),
                     "duration": duration_str,
-                    "duration_sec": parse_duration(duration_str),
+                    "duration_sec": duration_sec,
                 })
         
         return results[:count]
@@ -230,8 +238,6 @@ def search_youtube(query: str, count: int = 5) -> list:
     except Exception as e:
         logger.error(f"Search error: {e}")
         return []
-    finally:
-        shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 def is_valid_url(url: str) -> bool:
