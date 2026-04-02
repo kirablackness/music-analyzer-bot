@@ -452,10 +452,19 @@ async def _download_and_send(message, context, url: str, format_type: str, title
             with open(filename, "rb") as f:
                 if is_audio:
                     logger.info(f"Sending audio: {final_title}")
+                    # Split artist and title like in bot.js
+                    performer = ""
+                    audio_title = final_title
+                    if " - " in final_title:
+                        parts = final_title.split(" - ")
+                        performer = parts[0].strip()
+                        audio_title = " - ".join(parts[1:]).strip()
+                    
                     await message.reply_audio(
                         audio=f,
                         caption=caption,
-                        title=final_title,
+                        title=audio_title,
+                        performer=performer,
                     )
                 else:
                     logger.info(f"Sending video: {final_title}")
