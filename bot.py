@@ -332,13 +332,18 @@ async def download_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _download_and_send(message, context, url: str, format_type: str, title: str = None):
+    logger.info(f"Downloading: {url}, format: {format_type}")
     filename, downloaded_title, temp_dir = download_audio(url, for_analysis=False, format_type=format_type)
+    
+    logger.info(f"Download result: filename={filename}, title={downloaded_title}")
     
     if filename and os.path.exists(filename):
         final_title = title or downloaded_title
+        file_size_mb = os.path.getsize(filename) / 1024 / 1024
+        logger.info(f"File exists: {filename}, size: {file_size_mb:.1f}MB")
+        
         await message.reply_text(f"Отправляю: {final_title}")
         
-        file_size_mb = os.path.getsize(filename) / 1024 / 1024
         if file_size_mb > MAX_FILE_SIZE_MB:
             await message.reply_text(f"Файл слишком большой ({file_size_mb:.1f}МБ). Максимум: {MAX_FILE_SIZE_MB}МБ")
             cleanup_file(filename, temp_dir)
@@ -347,18 +352,25 @@ async def _download_and_send(message, context, url: str, format_type: str, title
         is_audio = format_type == "audio" or filename.endswith(".mp3")
         caption = f"{'🎵' if is_audio else '🎬'} {final_title}"
         
-        with open(filename, "rb") as f:
-            if is_audio:
-                await message.reply_audio(
-                    audio=f,
-                    caption=caption,
-                    title=final_title,
-                )
-            else:
-                await message.reply_video(
-                    video=f,
-                    caption=caption,
-                )
+        try:
+            with open(filename, "rb") as f:
+                if is_audio:
+                    logger.info(f"Sending audio: {final_title}")
+                    await message.reply_audio(
+                        audio=f,
+                        caption=caption,
+                        title=final_title,
+                    )
+                else:
+                    logger.info(f"Sending video: {final_title}")
+                    await message.reply_video(
+                        video=f,
+                        caption=caption,
+                    )
+            logger.info("File sent successfully")
+        except Exception as e:
+            logger.error(f"Error sending file: {e}")
+            await message.reply_text(f"Ошибка отправки: {e}")
         
         await message.reply_text(
             MESSAGES["welcome"],
@@ -366,6 +378,7 @@ async def _download_and_send(message, context, url: str, format_type: str, title
             parse_mode="Markdown"
         )
     else:
+        logger.error(f"File not found: {filename}")
         await message.reply_text("Не удалось скачать файл")
     
     cleanup_file(filename, temp_dir)
