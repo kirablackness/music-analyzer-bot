@@ -390,9 +390,8 @@ async def _handle_search_download(query, context):
     
     selected = results[index]
     print(f"=== Selected: {selected} ===")
-    format_text = "MP3" if format_type == "audio" else "видео"
     
-    await query.edit_message_text(f"Скачиваю {format_text}: {selected['title']}")
+    await query.answer()  # Just close the loading state
     
     url = f"https://www.youtube.com/watch?v={selected['id']}"
     print(f"=== Calling _download_and_send with URL: {url} ===")
