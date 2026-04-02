@@ -87,19 +87,11 @@ YDL_OPTS_DOWNLOAD_AUDIO = {
     "quiet": True,
     "no_warnings": True,
     "nocheckcertificate": True,
-    "postprocessors": [
-        {
-            "key": "FFmpegExtractAudio",
-            "preferredcodec": "mp3",
-            "preferredquality": "192",
-        },
-        {
-            "key": "FFmpegMetadata",
-        },
-        {
-            "key": "EmbedThumbnail",
-        },
-    ],
+    "postprocessors": [{
+        "key": "FFmpegExtractAudio",
+        "preferredcodec": "mp3",
+        "preferredquality": "192",
+    }],
 }
 
 YDL_OPTS_DOWNLOAD_VIDEO = {
@@ -174,25 +166,44 @@ def check_cooldown(user_id: int) -> Optional[int]:
 
 
 def download_audio(url: str, for_analysis: bool = True, format_type: str = "audio") -> tuple:
+    import subprocess
+    
     temp_dir = tempfile.mkdtemp()
-    
-    if for_analysis:
-        opts = YDL_OPTS_ANALYZE.copy()
-    else:
-        opts = (YDL_OPTS_DOWNLOAD_AUDIO if format_type == "audio" else YDL_OPTS_DOWNLOAD_VIDEO).copy()
-    
-    opts["outtmpl"] = os.path.join(temp_dir, "%(title)s.%(ext)s")
+    timestamp = int(time.time())
+    base_path = os.path.join(temp_dir, f"download_{timestamp}")
+    template = f"{base_path}.%(ext)s"
     
     try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            title = info.get("title", "Unknown")
-            filename = ydl.prepare_filename(info)
+        if format_type == "audio":
+            cmd = f'yt-dlp "{url}" --no-playlist -x --audio-format mp3 --audio-quality 0 -o "{template}"'
+        else:
+            cmd = f'yt-dlp "{url}" --no-playlist -f "bestvideo[height<=720]+bestaudio/best[height<=720]/best" --merge-output-format mp4 -o "{template}"'
         
-        if not os.path.exists(filename):
-            files = os.listdir(temp_dir)
-            if files:
-                filename = os.path.join(temp_dir, files[0])
+        logger.info(f"Running: {cmd}")
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=300)
+        
+        if result.returncode != 0:
+            logger.error(f"yt-dlp error: {result.stderr}")
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return None, None, None
+        
+        # Find downloaded file
+        filename = None
+        for file in os.listdir(temp_dir):
+            filepath = os.path.join(temp_dir, file)
+            if os.path.isfile(filepath):
+                filename = filepath
+                break
+        
+        if not filename:
+            logger.error("No file found after download")
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return None, None, None
+        
+        # Get title
+        title_cmd = f'yt-dlp --print "%(title)s" --no-warnings "{url}"'
+        title_result = subprocess.run(title_cmd, shell=True, capture_output=True, text=True, timeout=30)
+        title = title_result.stdout.strip() or "Unknown"
         
         return filename, title, temp_dir
     
