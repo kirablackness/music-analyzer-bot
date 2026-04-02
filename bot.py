@@ -174,10 +174,11 @@ def download_audio(url: str, for_analysis: bool = True, format_type: str = "audi
     template = f"{base_path}.%(ext)s"
     
     try:
+        # Add --no-check-certificates and extract-audio like bot.js
         if format_type == "audio":
-            cmd = f'yt-dlp "{url}" --no-playlist -x --audio-format mp3 --audio-quality 0 -o "{template}"'
+            cmd = f'yt-dlp --no-check-certificates --no-playlist -x --audio-format mp3 --audio-quality 0 -o "{template}" "{url}"'
         else:
-            cmd = f'yt-dlp "{url}" --no-playlist -f "bestvideo[height<=720]+bestaudio/best[height<=720]/best" --merge-output-format mp4 -o "{template}"'
+            cmd = f'yt-dlp --no-check-certificates --no-playlist -f "bestvideo[height<=720]+bestaudio/best[height<=720]/best" --merge-output-format mp4 -o "{template}" "{url}"'
         
         logger.info(f"Running: {cmd}")
         result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=300)
@@ -201,7 +202,7 @@ def download_audio(url: str, for_analysis: bool = True, format_type: str = "audi
             return None, None, None
         
         # Get title and artist
-        title_cmd = f'yt-dlp --print "%(artist)s|||%(title)s" --no-warnings "{url}"'
+        title_cmd = f'yt-dlp --no-check-certificates --print "%(artist)s|||%(title)s" --no-warnings "{url}"'
         title_result = subprocess.run(title_cmd, shell=True, capture_output=True, text=True, timeout=30)
         
         parts = title_result.stdout.strip().split("|||")
