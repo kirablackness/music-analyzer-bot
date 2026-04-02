@@ -525,8 +525,14 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif user_mode == "audio":
             format_type = "audio"
         else:
-            # Default: YouTube -> audio, TikTok/Instagram -> video
-            format_type = "video" if platform in ["tiktok", "instagram"] else "audio"
+            # Default: YouTube/shorts -> video if shorts, audio otherwise
+            # TikTok/Instagram -> video
+            if platform == "youtube" and "shorts" in url:
+                format_type = "video"
+            elif platform in ["tiktok", "instagram"]:
+                format_type = "video"
+            else:
+                format_type = "audio"
         
         print(f"=== Format: {format_type} ===")
         print(f"=== Calling _download_and_send ===")
