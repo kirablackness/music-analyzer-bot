@@ -478,13 +478,6 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     print(f"=== User ID: {user_id} ===")
     
-    cooldown = check_cooldown(user_id)
-    print(f"=== Cooldown check: {cooldown} ===")
-    if cooldown:
-        print(f"=== COOLDOWN ACTIVE: {cooldown} sec ===")
-        await update.message.reply_text(f"⏳ Подождите {cooldown} сек")
-        return
-    
     text = update.message.text.strip()
     print(f"=== Text: {text} ===")
     
@@ -513,11 +506,6 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_search(update: Update, context: ContextTypes.DEFAULT_TYPE, query: str):
     user_id = update.message.from_user.id
-    
-    cooldown = check_cooldown(user_id)
-    if cooldown:
-        await update.message.reply_text(f"⏳ Подождите {cooldown} сек")
-        return
     
     status_msg = await update.message.reply_text("🔍 Ищу на YouTube...")
     
