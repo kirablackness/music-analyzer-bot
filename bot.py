@@ -35,8 +35,8 @@ search_cache = {}
 KEYBOARDS = {
     "main": [
         [
-            InlineKeyboardButton("📥 Скачать аудио", callback_data="mode_audio"),
-            InlineKeyboardButton("📥 Скачать видео", callback_data="mode_video")
+            InlineKeyboardButton("📥 Скачать 🎵 Аудио", callback_data="mode_audio"),
+            InlineKeyboardButton("📥 Скачать 🎬 Видео", callback_data="mode_video")
         ],
         [InlineKeyboardButton("ℹ️ Инфо", callback_data="info")],
         [InlineKeyboardButton("❓ Помощь", callback_data="help")],
@@ -54,7 +54,9 @@ MESSAGES = {
         "ℹ️ *Что я умею:*\n\n"
         "• Скачиваю с YouTube, TikTok, Instagram, SoundCloud\n"
         "• Ищу музыку по названию\n\n"
-        "Просто отправь ссылку или название песни!"
+        "Просто отправь ссылку или название песни!\n\n"
+        "💬 *Есть проблемы?*\n"
+        "Пиши: @kirablackness"
     ),
     "info": (
         "🎬 *Media Download Bot*\n\n"
@@ -71,7 +73,9 @@ MESSAGES = {
         "/start - начало\n"
         "/info - информация о боте\n"
         "/help - помощь\n"
-        "/status - статус бота"
+        "/status - статус бота\n\n"
+        "💬 *Проблемы?*\n"
+        "@kirablackness"
     ),
 }
 
@@ -176,7 +180,7 @@ def download_audio(url: str, for_analysis: bool = True, format_type: str = "audi
     try:
         # Add --no-check-certificates and extract-audio like bot.js
         if format_type == "audio":
-            cmd = f'yt-dlp --no-check-certificates --no-playlist -x --audio-format mp3 --audio-quality 0 --embed-thumbnail --add-metadata -o "{template}" "{url}"'
+            cmd = f'yt-dlp --no-check-certificates --no-playlist -x --audio-format mp3 --audio-quality 0 -o "{template}" "{url}"'
         else:
             cmd = f'yt-dlp --no-check-certificates --no-playlist -f "bestvideo[height<=720]+bestaudio/best[height<=720]/best" --merge-output-format mp4 -o "{template}" "{url}"'
         
