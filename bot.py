@@ -35,8 +35,8 @@ search_cache = {}
 KEYBOARDS = {
     "main": [
         [
-            InlineKeyboardButton("📥 Скачать 🎵 Аудио", callback_data="mode_audio"),
-            InlineKeyboardButton("📥 Скачать 🎬 Видео", callback_data="mode_video")
+            InlineKeyboardButton("🎵 Скачать Аудио", callback_data="mode_audio"),
+            InlineKeyboardButton("🎬 Скачать Видео", callback_data="mode_video")
         ],
         [InlineKeyboardButton("ℹ️ Инфо", callback_data="info")],
         [InlineKeyboardButton("❓ Помощь", callback_data="help")],
