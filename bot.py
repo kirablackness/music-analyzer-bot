@@ -415,6 +415,11 @@ async def download_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def _download_and_send(message, context, url: str, format_type: str, title: str = None):
     logger.info(f"Downloading: {url}, format: {format_type}")
+    
+    # Send initial status message
+    format_text = "MP3" if format_type == "audio" else "видео"
+    status_msg = await message.reply_text(f"⏳ Скачиваю {format_text}...")
+    
     filename, downloaded_title, temp_dir = download_audio(url, for_analysis=False, format_type=format_type)
     
     logger.info(f"Download result: filename={filename}, title={downloaded_title}")
@@ -424,10 +429,11 @@ async def _download_and_send(message, context, url: str, format_type: str, title
         file_size_mb = os.path.getsize(filename) / 1024 / 1024
         logger.info(f"File exists: {filename}, size: {file_size_mb:.1f}MB")
         
-        await message.reply_text(f"Отправляю: {final_title}")
+        # Update status message
+        await status_msg.edit_text(f"📤 Отправляю: {final_title} ({file_size_mb:.1f}МБ)")
         
         if file_size_mb > MAX_FILE_SIZE_MB:
-            await message.reply_text(f"Файл слишком большой ({file_size_mb:.1f}МБ). Максимум: {MAX_FILE_SIZE_MB}МБ")
+            await status_msg.edit_text(f"❌ Файл слишком большой ({file_size_mb:.1f}МБ). Максимум: {MAX_FILE_SIZE_MB}МБ")
             cleanup_file(filename, temp_dir)
             return
         
@@ -452,7 +458,10 @@ async def _download_and_send(message, context, url: str, format_type: str, title
             logger.info("File sent successfully")
         except Exception as e:
             logger.error(f"Error sending file: {e}")
-            await message.reply_text(f"Ошибка отправки: {e}")
+            await status_msg.edit_text(f"❌ Ошибка отправки: {e}")
+        
+        # Delete status message after sending
+        await status_msg.delete()
         
         await message.reply_text(
             MESSAGES["welcome"],
@@ -461,7 +470,7 @@ async def _download_and_send(message, context, url: str, format_type: str, title
         )
     else:
         logger.error(f"File not found: {filename}")
-        await message.reply_text("Не удалось скачать файл")
+        await status_msg.edit_text("❌ Не удалось скачать файл")
     
     cleanup_file(filename, temp_dir)
 
