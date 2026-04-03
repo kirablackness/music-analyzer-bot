@@ -618,6 +618,11 @@ async def handle_search(update: Update, context: ContextTypes.DEFAULT_TYPE, quer
     
     results = search_youtube(query, count=5)
     
+    # Debug: log results
+    logger.info(f"Search returned {len(results)} results")
+    for i, r in enumerate(results[:3]):  # Log first 3 results
+        logger.info(f"Result {i}: title={r.get('title')}, duration={r.get('duration')}, duration_sec={r.get('duration_sec')}")
+    
     if not results:
         await status_msg.edit_text("❌ Ничего не найдено. Попробуйте другой запрос.")
         return
