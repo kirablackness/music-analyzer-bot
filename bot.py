@@ -235,11 +235,18 @@ def search_youtube(query: str, count: int = 5) -> list:
         cmd = f'yt-dlp "https://music.youtube.com/search?q={encoded_query}" --flat-playlist --print "%(id)s|||%(title)s|||%(duration_string)s|||%(artist)s" --no-warnings'
         result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
         
+        print(f"=== yt-dlp stdout length: {len(result.stdout)} ===")
+        print(f"=== yt-dlp stderr: {result.stderr[:200]} ===")
+        print(f"=== yt-dlp first 500 chars: {result.stdout[:500]} ===")
+        logger.info(f"yt-dlp search output:\n{result.stdout[:500]}")
+        
         results = []
         for line in result.stdout.strip().split('\n'):
             if not line:
                 continue
+            logger.info(f"Parsing line: {line}")
             parts = line.split('|||')
+            logger.info(f"Parts: {parts}")
             if len(parts) >= 4:
                 id_, title, duration, artist = parts[0], parts[1], parts[2], parts[3]
                 
@@ -446,7 +453,7 @@ async def download_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _download_and_send(message, context, url: str, format_type: str, title: str = None):
-    logger.info(f"Downloading: {url}, format: {format_type}")
+    logger.info(f"Downloading: {url}, format: {format_type}, title from search: {title}")
     
     # Send initial status message with title
     format_text = "MP3" if format_type == "audio" else "видео"
@@ -460,7 +467,8 @@ async def _download_and_send(message, context, url: str, format_type: str, title
     logger.info(f"Download result: filename={filename}, title={downloaded_title}")
     
     if filename and os.path.exists(filename):
-        final_title = title or downloaded_title
+        final_title = downloaded_title
+        logger.info(f"Using downloaded_title as final_title: {final_title}")
         file_size_mb = os.path.getsize(filename) / 1024 / 1024
         logger.info(f"File exists: {filename}, size: {file_size_mb:.1f}MB")
         
@@ -479,7 +487,6 @@ async def _download_and_send(message, context, url: str, format_type: str, title
             with open(filename, "rb") as f:
                 if is_audio:
                     logger.info(f"Sending audio: {final_title}")
-                    # Split artist and title like in bot.js
                     performer = ""
                     audio_title = final_title
                     if " - " in final_title:
