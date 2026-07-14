@@ -2,6 +2,7 @@ python-telegram-bot==21.0
 librosa==0.10.2
 pyloudnorm==0.1.1
 yt-dlp==2026.3.17
+mutagen==1.47.0
 numpy==1.26.4
 soundfile==0.13.1
 scipy==1.13.1

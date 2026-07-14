@@ -148,6 +148,22 @@ def detect_platform(url: str) -> Optional[str]:
     return None
 
 
+def clean_artist_name(name: str) -> str:
+    """Strip '- Topic' suffix and clean up channel/artist name."""
+    if not name or name == "NA":
+        return ""
+    return re.sub(r'\s*- Topic\s*$', '', name).strip()
+
+
+def build_display_title(artist: str, title: str) -> str:
+    """Build 'Artist - Title' avoiding duplication when title already starts with artist."""
+    if not title or title == "NA":
+        title = "Без названия"
+    if artist and not title.lower().startswith(artist.lower()):
+        return f"{artist} - {title}"
+    return title
+
+
 def parse_duration(duration_str: str) -> int:
     if not duration_str or duration_str == "?:??":
         return 0
@@ -177,12 +193,27 @@ def download_audio(url: str, for_analysis: bool = True, format_type: str = "audi
     base_path = os.path.join(temp_dir, f"download_{timestamp}")
     template = f"{base_path}.%(ext)s"
     
+    AUDIO_EXTS = {".mp3", ".m4a", ".opus", ".webm", ".ogg", ".wav"}
+    VIDEO_EXTS = {".mp4", ".webm", ".mkv"}
+    THUMB_EXTS = {".jpg", ".jpeg", ".webp", ".png"}
+    
     try:
-        # Add --no-check-certificates and extract-audio like bot.js
         if format_type == "audio":
-            cmd = f'yt-dlp --no-check-certificates --no-playlist -x --audio-format mp3 --audio-quality 0 -o "{template}" "{url}"'
+            cmd = (
+                f'yt-dlp --no-check-certificates --no-playlist -x --audio-format mp3 '
+                f'--audio-quality 0 --embed-metadata --embed-thumbnail --write-thumbnail '
+                f'--convert-thumbnails jpg '
+                f'--parse-metadata "artist:%(artist|channel)s" '
+                f'-o "{template}" "{url}"'
+            )
         else:
-            cmd = f'yt-dlp --no-check-certificates --no-playlist -f "bestvideo[height<=720]+bestaudio/best[height<=720]/best" --merge-output-format mp4 -o "{template}" "{url}"'
+            cmd = (
+                f'yt-dlp --no-check-certificates --no-playlist '
+                f'-f "bestvideo[height<=720]+bestaudio/best[height<=720]/best" '
+                f'--merge-output-format mp4 --embed-metadata --write-thumbnail '
+                f'--convert-thumbnails jpg '
+                f'-o "{template}" "{url}"'
+            )
         
         logger.info(f"Running: {cmd}")
         result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=300)
@@ -190,40 +221,98 @@ def download_audio(url: str, for_analysis: bool = True, format_type: str = "audi
         if result.returncode != 0:
             logger.error(f"yt-dlp error: {result.stderr}")
             shutil.rmtree(temp_dir, ignore_errors=True)
-            return None, None, None
+            return None, None, None, None
         
-        # Find downloaded file
+        # Find downloaded media file (skip thumbnail images)
+        target_exts = AUDIO_EXTS if format_type == "audio" else VIDEO_EXTS
         filename = None
+        thumb_path = None
         for file in os.listdir(temp_dir):
             filepath = os.path.join(temp_dir, file)
-            if os.path.isfile(filepath):
+            if not os.path.isfile(filepath):
+                continue
+            ext = os.path.splitext(file)[1].lower()
+            if ext in target_exts and not filename:
                 filename = filepath
-                break
+            elif ext in THUMB_EXTS and not thumb_path:
+                thumb_path = filepath
         
         if not filename:
-            logger.error("No file found after download")
+            logger.error("No media file found after download")
             shutil.rmtree(temp_dir, ignore_errors=True)
-            return None, None, None
+            return None, None, None, None
         
-        # Get title and artist like bot.js
-        title_cmd = f'yt-dlp --no-check-certificates --print "%(artist)s|||%(title)s" --no-warnings "{url}"'
-        title_result = subprocess.run(title_cmd, shell=True, capture_output=True, text=True, timeout=30)
+        # Get full metadata with fallbacks: artist → channel → uploader
+        meta_cmd = (
+            f'yt-dlp --no-check-certificates '
+            f'--print "%(artist)s|||%(title)s|||%(channel)s|||%(uploader)s" '
+            f'--no-warnings "{url}"'
+        )
+        meta_result = subprocess.run(meta_cmd, shell=True, capture_output=True, text=True, timeout=30)
         
-        parts = title_result.stdout.strip().split("|||")
-        if len(parts) >= 2:
-            artist = parts[0] if parts[0] and parts[0] != "NA" else ""
-            title = parts[1] or "Unknown"
-            full_title = f"{artist} - {title}" if artist else title
-        else:
-            full_title = parts[0] if parts[0] else "Unknown"
+        parts = meta_result.stdout.strip().split("|||")
+        artist_raw = parts[0] if len(parts) > 0 else ""
+        title_raw = parts[1] if len(parts) > 1 else ""
+        channel = parts[2] if len(parts) > 2 else ""
+        uploader = parts[3] if len(parts) > 3 else ""
         
-        logger.info(f"Downloaded: {full_title}")
-        return filename, full_title, temp_dir
+        # Determine artist with fallbacks
+        artist = clean_artist_name(artist_raw)
+        if not artist:
+            artist = clean_artist_name(channel) or clean_artist_name(uploader)
+        
+        title = title_raw if title_raw and title_raw != "NA" else "Unknown"
+        full_title = build_display_title(artist, title)
+        
+        # Rename media file to proper title (not just timestamp numbers)
+        ext = os.path.splitext(filename)[1]
+        safe_name = re.sub(r'[<>:"/\\|?*\n\r\t]', '', full_title)[:100].strip()
+        if safe_name:
+            new_path = os.path.join(temp_dir, f"{safe_name}{ext}")
+            try:
+                os.rename(filename, new_path)
+                filename = new_path
+            except Exception as e:
+                logger.warning(f"Could not rename file: {e}")
+        
+        logger.info(f"Downloaded: {full_title}, file: {filename}, thumb: {thumb_path}")
+        return filename, full_title, temp_dir, thumb_path
     
     except Exception as e:
         logger.error(f"Download error: {e}")
         shutil.rmtree(temp_dir, ignore_errors=True)
-        return None, None, None
+        return None, None, None, None
+
+
+def prepare_thumbnail(thumb_path: str, temp_dir: str) -> Optional[str]:
+    """Convert/resize thumbnail to JPEG 320x320 max (Telegram requirement) via ffmpeg."""
+    if not thumb_path or not os.path.exists(thumb_path):
+        return None
+    import subprocess
+    out_path = os.path.join(temp_dir, "cover.jpg")
+    try:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", thumb_path, "-vf", "scale='min(320,iw)':'min(320,ih)':force_original_aspect_ratio=decrease",
+             "-q:v", "5", out_path],
+            capture_output=True, timeout=15,
+        )
+        if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
+            return out_path
+    except Exception as e:
+        logger.warning(f"Thumbnail convert error: {e}")
+    return None
+
+
+def format_duration(seconds: int) -> str:
+    """Format seconds to m:ss or h:mm:ss."""
+    if not seconds or seconds <= 0:
+        return ""
+    h = seconds // 3600
+    m = (seconds % 3600) // 60
+    s = seconds % 60
+    if h > 0:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m}:{s:02d}"
 
 
 def search_youtube(query: str, count: int = 5) -> list:
@@ -231,41 +320,52 @@ def search_youtube(query: str, count: int = 5) -> list:
     
     try:
         encoded_query = query.replace('"', '\\"')
-        # EXACT same command as bot.js
-        cmd = f'yt-dlp "https://music.youtube.com/search?q={encoded_query}" --flat-playlist --print "%(id)s|||%(title)s|||%(duration_string)s|||%(artist)s" --no-warnings'
+        cmd = (
+            f'yt-dlp "https://music.youtube.com/search?q={encoded_query}" '
+            f'--flat-playlist '
+            f'--print "%(id)s|||%(title)s|||%(duration_string)s|||%(duration)s|||%(channel)s|||%(uploader)s" '
+            f'--no-warnings'
+        )
         result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
-        
-        print(f"=== yt-dlp stdout length: {len(result.stdout)} ===")
-        print(f"=== yt-dlp stderr: {result.stderr[:200]} ===")
-        print(f"=== yt-dlp first 500 chars: {result.stdout[:500]} ===")
-        logger.info(f"yt-dlp search output:\n{result.stdout[:500]}")
         
         results = []
         for line in result.stdout.strip().split('\n'):
             if not line:
                 continue
-            logger.info(f"Parsing line: {line}")
             parts = line.split('|||')
-            logger.info(f"Parts: {parts}")
-            if len(parts) >= 4:
-                id_, title, duration, artist = parts[0], parts[1], parts[2], parts[3]
-                
-                # EXACT same logic as bot.js
-                clean_artist = artist if artist and artist != "NA" else ""
-                clean_title = title if title else "Без названия"
-                display_title = f"{clean_artist} - {clean_title}" if clean_artist else clean_title
-                
-                # EXACT same logic as bot.js for duration
-                duration_str = duration if duration and duration != "NA" else ""
-                duration_sec = parse_duration(duration_str)
-                
-                if id_ and len(id_) == 11 and clean_title != "NA":
-                    results.append({
-                        "id": id_,
-                        "title": display_title,
-                        "duration": duration_str,
-                        "duration_sec": duration_sec,
-                    })
+            if len(parts) < 3:
+                continue
+            
+            id_ = parts[0]
+            title = parts[1] if parts[1] and parts[1] != "NA" else "Без названия"
+            duration_str = parts[2] if len(parts) > 2 and parts[2] != "NA" else ""
+            duration_sec_raw = parts[3] if len(parts) > 3 and parts[3] != "NA" else ""
+            channel = parts[4] if len(parts) > 4 else ""
+            uploader = parts[5] if len(parts) > 5 else ""
+            
+            # Parse duration: prefer duration_string, fall back to duration (seconds)
+            duration_sec = parse_duration(duration_str)
+            if not duration_sec and duration_sec_raw:
+                try:
+                    duration_sec = int(float(duration_sec_raw))
+                except (ValueError, TypeError):
+                    duration_sec = 0
+            
+            # Format duration string from seconds if missing
+            if duration_sec and not duration_str:
+                duration_str = format_duration(duration_sec)
+            
+            # Artist: use channel or uploader as fallback, strip "- Topic"
+            artist = clean_artist_name(channel) or clean_artist_name(uploader)
+            display_title = build_display_title(artist, title)
+            
+            if id_ and len(id_) == 11:
+                results.append({
+                    "id": id_,
+                    "title": display_title,
+                    "duration": duration_str,
+                    "duration_sec": duration_sec,
+                })
         
         return results[:count]
     
@@ -462,9 +562,9 @@ async def _download_and_send(message, context, url: str, format_type: str, title
     else:
         status_msg = await message.reply_text(f"⏳ Скачиваю {format_text}...")
     
-    filename, downloaded_title, temp_dir = download_audio(url, for_analysis=False, format_type=format_type)
+    filename, downloaded_title, temp_dir, thumb_path = download_audio(url, for_analysis=False, format_type=format_type)
     
-    logger.info(f"Download result: filename={filename}, title={downloaded_title}")
+    logger.info(f"Download result: filename={filename}, title={downloaded_title}, thumb={thumb_path}")
     
     if filename and os.path.exists(filename):
         final_title = downloaded_title
@@ -483,10 +583,17 @@ async def _download_and_send(message, context, url: str, format_type: str, title
         is_audio = format_type == "audio" or filename.endswith(".mp3")
         caption = f"{'🎵' if is_audio else '🎬'} {final_title}"
         
+        # Prepare cover for Telegram (resize to 320x320 JPEG, max 200KB)
+        cover_path = prepare_thumbnail(thumb_path, temp_dir)
+        
         try:
             with open(filename, "rb") as f:
+                thumb_file = None
+                if cover_path and os.path.exists(cover_path):
+                    thumb_file = open(cover_path, "rb")
+                
                 if is_audio:
-                    logger.info(f"Sending audio: {final_title}")
+                    logger.info(f"Sending audio: {final_title}, with cover: {bool(thumb_file)}")
                     performer = ""
                     audio_title = final_title
                     if " - " in final_title:
@@ -499,17 +606,22 @@ async def _download_and_send(message, context, url: str, format_type: str, title
                         caption=caption,
                         title=audio_title,
                         performer=performer,
+                        thumbnail=thumb_file,
                     )
                 else:
-                    logger.info(f"Sending video: {final_title}")
+                    logger.info(f"Sending video: {final_title}, with cover: {bool(thumb_file)}")
                     await message.reply_video(
                         video=f,
                         caption=caption,
+                        thumbnail=thumb_file,
                     )
             logger.info("File sent successfully")
         except Exception as e:
             logger.error(f"Error sending file: {e}")
             await status_msg.edit_text(f"❌ Ошибка отправки: {e}")
+        finally:
+            if thumb_file:
+                thumb_file.close()
         
         # Delete status message after sending
         await status_msg.delete()
