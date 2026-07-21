@@ -197,10 +197,15 @@ def download_audio(url: str, for_analysis: bool = True, format_type: str = "audi
     VIDEO_EXTS = {".mp4", ".webm", ".mkv"}
     THUMB_EXTS = {".jpg", ".jpeg", ".webp", ".png"}
     
+    # Cookies file (for Instagram, Yandex Music etc. requiring auth)
+    cookies_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cookies.txt")
+    cookies_arg = f'--cookies "{cookies_file}" ' if os.path.exists(cookies_file) else ""
+    
     try:
         if format_type == "audio":
             cmd = (
-                f'yt-dlp --no-check-certificates --no-playlist -x --audio-format mp3 '
+                f'yt-dlp --no-check-certificates --no-playlist {cookies_arg}'
+                f'-x --audio-format mp3 '
                 f'--audio-quality 0 --embed-metadata --embed-thumbnail --write-thumbnail '
                 f'--convert-thumbnails jpg '
                 f'--parse-metadata "artist:%(artist|channel)s" '
@@ -208,7 +213,7 @@ def download_audio(url: str, for_analysis: bool = True, format_type: str = "audi
             )
         else:
             cmd = (
-                f'yt-dlp --no-check-certificates --no-playlist '
+                f'yt-dlp --no-check-certificates --no-playlist {cookies_arg}'
                 f'-f "bestvideo[height<=720]+bestaudio/best[height<=720]/best" '
                 f'--merge-output-format mp4 --embed-metadata --write-thumbnail '
                 f'--convert-thumbnails jpg '
@@ -220,6 +225,10 @@ def download_audio(url: str, for_analysis: bool = True, format_type: str = "audi
         
         if result.returncode != 0:
             logger.error(f"yt-dlp error: {result.stderr}")
+            # Detect Instagram login-required errors for clearer user feedback
+            if "instagram" in url.lower() and not cookies_arg:
+                if "login required" in result.stderr.lower() or "401" in result.stderr:
+                    logger.error("Instagram requires cookies.txt for downloading")
             shutil.rmtree(temp_dir, ignore_errors=True)
             return None, None, None, None
         
