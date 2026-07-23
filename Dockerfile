@@ -12,5 +12,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY bot.py .
+# Optional: cookies.txt for Instagram/Yandex Music (mount as volume in prod)
+COPY cookies.txt* ./
 
 CMD ["python", "bot.py"]

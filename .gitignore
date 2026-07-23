@@ -1,0 +1,10 @@
+cookies.txt
+__pycache__/
+*.pyc
+.DS_Store
+.env
+*.mp3
+*.mp4
+*.jpg
+*.jpeg
+*.webp
